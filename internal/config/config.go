@@ -50,11 +50,36 @@ func Load(mode Mode) (*Config, error) {
 		values[i] = v
 	}
 
+	embedder := os.Getenv("RAG_EMBEDDER")
+	if embedder == "" {
+		embedder = "voyage"
+	}
+	if embedder != "voyage" && embedder != "openai" {
+		return nil, fmt.Errorf("config: RAG_EMBEDDER must be \"voyage\" or \"openai\", got %q", embedder)
+	}
+
+	var voyageKey, openaiKey string
+	switch embedder {
+	case "voyage":
+		voyageKey = os.Getenv("VOYAGE_API_KEY")
+		if voyageKey == "" {
+			return nil, fmt.Errorf("config: VOYAGE_API_KEY is required when RAG_EMBEDDER=voyage")
+		}
+	case "openai":
+		openaiKey = os.Getenv("OPENAI_API_KEY")
+		if openaiKey == "" {
+			return nil, fmt.Errorf("config: OPENAI_API_KEY is required when RAG_EMBEDDER=openai")
+		}
+	}
+
 	return &Config{
 		Mode:         mode,
 		JiraBaseURL:  values[0],
 		JiraEmail:    values[1],
 		JiraAPIToken: values[2],
 		DatabaseURL:  values[3],
+		RAGEmbedder:  embedder,
+		VoyageAPIKey: voyageKey,
+		OpenAIAPIKey: openaiKey,
 	}, nil
 }

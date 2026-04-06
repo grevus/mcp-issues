@@ -13,6 +13,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("JIRA_EMAIL", "user@example.com")
 	t.Setenv("JIRA_API_TOKEN", "secret-token")
 	t.Setenv("DATABASE_URL", "postgres://localhost/testdb")
+	t.Setenv("VOYAGE_API_KEY", "voyage-test-key")
 }
 
 func TestLoad_HappyPath(t *testing.T) {
@@ -67,4 +68,71 @@ func TestLoad_MissingDatabaseURL(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, cfg)
 	require.Contains(t, err.Error(), "DATABASE_URL")
+}
+
+func TestLoad_EmbedderDefault(t *testing.T) {
+	setRequiredEnv(t)
+	// RAG_EMBEDDER не задан — должен использоваться "voyage" по умолчанию.
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.NoError(t, err)
+	require.Equal(t, "voyage", cfg.RAGEmbedder)
+	require.Equal(t, "voyage-test-key", cfg.VoyageAPIKey)
+	require.Empty(t, cfg.OpenAIAPIKey)
+}
+
+func TestLoad_EmbedderVoyageExplicit(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("RAG_EMBEDDER", "voyage")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.NoError(t, err)
+	require.Equal(t, "voyage", cfg.RAGEmbedder)
+	require.Equal(t, "voyage-test-key", cfg.VoyageAPIKey)
+	require.Empty(t, cfg.OpenAIAPIKey)
+}
+
+func TestLoad_EmbedderOpenAI(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("RAG_EMBEDDER", "openai")
+	t.Setenv("VOYAGE_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "openai-test-key")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.NoError(t, err)
+	require.Equal(t, "openai", cfg.RAGEmbedder)
+	require.Equal(t, "openai-test-key", cfg.OpenAIAPIKey)
+	require.Empty(t, cfg.VoyageAPIKey)
+}
+
+func TestLoad_EmbedderUnknown(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("RAG_EMBEDDER", "cohere")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.Contains(t, err.Error(), "RAG_EMBEDDER")
+	require.Contains(t, err.Error(), "cohere")
+}
+
+func TestLoad_EmbedderVoyageMissingKey(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("VOYAGE_API_KEY", "")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.Contains(t, err.Error(), "VOYAGE_API_KEY")
+}
+
+func TestLoad_EmbedderOpenAIMissingKey(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("RAG_EMBEDDER", "openai")
+	t.Setenv("VOYAGE_API_KEY", "")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.Contains(t, err.Error(), "OPENAI_API_KEY")
 }
