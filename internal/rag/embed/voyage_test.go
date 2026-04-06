@@ -74,6 +74,36 @@ func TestVoyageEmbedder_EmptyInput(t *testing.T) {
 	require.Equal(t, 0, requestCount)
 }
 
+func TestVoyageEmbedder_HTTPError401(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	e := NewVoyageEmbedder("bad-key", nil)
+	e.url = ts.URL + "/v1/embeddings"
+
+	_, err := e.Embed(t.Context(), []string{"hello"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "voyage")
+	require.Contains(t, err.Error(), "401")
+}
+
+func TestVoyageEmbedder_HTTPError500(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	e := NewVoyageEmbedder("test-key", nil)
+	e.url = ts.URL + "/v1/embeddings"
+
+	_, err := e.Embed(t.Context(), []string{"hello"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "voyage")
+	require.Contains(t, err.Error(), "500")
+}
+
 func TestVoyageEmbedder_Batching(t *testing.T) {
 	var requestCount int
 	var requestSizes []int

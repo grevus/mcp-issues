@@ -36,7 +36,8 @@ func NewVoyageEmbedder(apiKey string, httpClient *http.Client) *VoyageEmbedder {
 // Name возвращает "voyage".
 func (e *VoyageEmbedder) Name() string { return "voyage" }
 
-// Dimension возвращает размерность векторов (1024).
+// Dimension возвращает фиксированную размерность векторов (1024),
+// согласованную со схемой Postgres vector(1024) из spec §5.3.
 func (e *VoyageEmbedder) Dimension() int { return voyageDimension }
 
 // voyageRequest — тело запроса к Voyage AI.
@@ -106,6 +107,10 @@ func (e *VoyageEmbedder) embedBatch(ctx context.Context, texts []string) ([][]fl
 		return nil, fmt.Errorf("voyage: http do: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("voyage: POST %s -> %d", e.url, resp.StatusCode)
+	}
 
 	var voyageResp voyageResponse
 	if err := json.NewDecoder(resp.Body).Decode(&voyageResp); err != nil {
