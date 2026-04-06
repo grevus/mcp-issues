@@ -22,4 +22,9 @@ func Register(srv *mcp.Server, jc JiraClient, ret handlers.KnowledgeRetriever) {
 		Name:        "list_issues",
 		Description: "Search Jira issues using JQL filters (project, status, assignee).",
 	}, adapt(handlers.ListIssues(jc)))
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_sprint_health",
+		Description: "Return health metrics for the active sprint of a Jira Software board.",
+	}, adapt(handlers.SprintHealth(jc)))
 }

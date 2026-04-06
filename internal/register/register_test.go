@@ -69,3 +69,14 @@ func TestRegister_ListIssues(t *testing.T) {
 	require.False(t, result.IsError, "expected successful result")
 	require.NotEmpty(t, result.Content)
 }
+
+// TestRegister_GetSprintHealth — smoke-тест: инструмент get_sprint_health
+// зарегистрирован и возвращает не-ошибочный результат.
+func TestRegister_GetSprintHealth(t *testing.T) {
+	srv := newTestServer(t)
+	result := callTool(t, srv, "get_sprint_health", map[string]any{
+		"board_id": 42,
+	})
+	require.False(t, result.IsError, "expected successful result")
+	require.NotEmpty(t, result.Content)
+}
