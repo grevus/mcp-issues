@@ -136,3 +136,60 @@ func TestLoad_EmbedderOpenAIMissingKey(t *testing.T) {
 	require.Nil(t, cfg)
 	require.Contains(t, err.Error(), "OPENAI_API_KEY")
 }
+
+func TestLoad_HTTP_RequiresMCPAPIKey(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("MCP_API_KEY", "")
+
+	cfg, err := config.Load(config.ModeHTTP)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.Contains(t, err.Error(), "MCP_API_KEY")
+}
+
+func TestLoad_HTTP_HappyPath(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("MCP_API_KEY", "secret")
+	t.Setenv("MCP_ADDR", "")
+
+	cfg, err := config.Load(config.ModeHTTP)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "secret", cfg.MCPAPIKey)
+	require.Equal(t, ":8080", cfg.MCPAddr)
+}
+
+func TestLoad_HTTP_CustomMCPAddr(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("MCP_API_KEY", "secret")
+	t.Setenv("MCP_ADDR", ":9090")
+
+	cfg, err := config.Load(config.ModeHTTP)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, ":9090", cfg.MCPAddr)
+}
+
+func TestLoad_Stdio_IgnoresMCPAPIKey(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("MCP_API_KEY", "")
+	t.Setenv("MCP_ADDR", ":9090")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "", cfg.MCPAPIKey)
+	require.Equal(t, "", cfg.MCPAddr)
+}
+
+func TestLoad_Index_IgnoresMCPAPIKey(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("MCP_API_KEY", "")
+	t.Setenv("MCP_ADDR", ":9090")
+
+	cfg, err := config.Load(config.ModeIndex)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "", cfg.MCPAPIKey)
+	require.Equal(t, "", cfg.MCPAddr)
+}

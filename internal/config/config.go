@@ -72,6 +72,18 @@ func Load(mode Mode) (*Config, error) {
 		}
 	}
 
+	var mcpAPIKey, mcpAddr string
+	if mode == ModeHTTP {
+		mcpAPIKey = os.Getenv("MCP_API_KEY")
+		if mcpAPIKey == "" {
+			return nil, fmt.Errorf("config: MCP_API_KEY is required for http mode")
+		}
+		mcpAddr = os.Getenv("MCP_ADDR")
+		if mcpAddr == "" {
+			mcpAddr = ":8080"
+		}
+	}
+
 	return &Config{
 		Mode:         mode,
 		JiraBaseURL:  values[0],
@@ -81,5 +93,7 @@ func Load(mode Mode) (*Config, error) {
 		RAGEmbedder:  embedder,
 		VoyageAPIKey: voyageKey,
 		OpenAIAPIKey: openaiKey,
+		MCPAPIKey:    mcpAPIKey,
+		MCPAddr:      mcpAddr,
 	}, nil
 }
