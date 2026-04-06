@@ -69,8 +69,15 @@ func main() {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "mcp-jira", Version: "0.1.0"}, nil)
 	register.Register(srv, jc, retAdapter)
 
-	log.Println("mcp-jira: dependencies wired, transport not started yet")
-	_ = srv
+	switch mode {
+	case config.ModeStdio:
+		// stdio: never write to stdout — it's reserved for JSON-RPC.
+		log.SetOutput(os.Stderr)
+		log.Println("mcp-jira: starting stdio transport")
+		if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil {
+			log.Fatalf("stdio transport: %v", err)
+		}
+	}
 }
 
 // retrieverAdapter converts retriever.Retriever output ([]store.Hit) to
