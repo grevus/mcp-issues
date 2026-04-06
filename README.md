@@ -42,6 +42,36 @@ bin/mcp-jira --transport=http
 | `MCP_API_KEY` | **только http** | — | Статический ключ для авторизации HTTP-запросов к `/mcp` |
 | `MCP_ADDR` | http | `:8080` | Адрес и порт HTTP-сервера |
 
+## Adding a new Jira tool
+
+Четыре шага, никакого DI-контейнера и plugin-registry — намеренный отказ.
+
+1. **Метод на `*jira.HTTPClient` + DTO** — добавить новый endpoint и типы данных в `internal/jira/`.
+   Пример: `func (c *HTTPClient) GetWorklogs(ctx context.Context, issueKey string) ([]Worklog, error)`.
+
+2. **Файл `internal/handlers/<thing>.go`** — описать `Input`, `Output`, узкий интерфейс и конструктор хендлера.
+   ```go
+   type WorklogReader interface {
+       GetWorklogs(ctx context.Context, issueKey string) ([]jira.Worklog, error)
+   }
+
+   func Worklogs(r WorklogReader) Handler[WorklogInput, WorklogOutput] { ... }
+   ```
+   Файл импортирует только `context`, `fmt`, `encoding/json` и domain-типы. **Никогда** `mcp` или `echo`.
+
+3. **Тест `<thing>_test.go`** — fake-реализация узкого интерфейса, table-driven кейсы.
+   ```go
+   type fakeWorklogReader struct { worklogs []jira.Worklog; err error }
+   func (f *fakeWorklogReader) GetWorklogs(_ context.Context, _ string) ([]jira.Worklog, error) {
+       return f.worklogs, f.err
+   }
+   ```
+
+4. **Одна строка в `internal/register/register.go`:**
+   ```go
+   mcp.AddTool(srv, &mcp.Tool{Name: "get_worklogs", Description: "..."}, adapt(handlers.Worklogs(jc)))
+   ```
+
 ## Claude Desktop config
 
 Добавьте в `claude_desktop_config.json` (обычно `~/Library/Application Support/Claude/claude_desktop_config.json`):
