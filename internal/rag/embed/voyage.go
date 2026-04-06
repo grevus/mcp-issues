@@ -11,6 +11,7 @@ import (
 const voyageDefaultURL = "https://api.voyageai.com/v1/embeddings"
 const voyageModel = "voyage-3"
 const voyageDimension = 1024
+const voyageBatchSize = 128
 
 // VoyageEmbedder реализует Embedder через Voyage AI API.
 type VoyageEmbedder struct {
@@ -55,10 +56,34 @@ type voyageResponse struct {
 	Data []voyageEmbeddingItem `json:"data"`
 }
 
-// Embed выполняет один HTTP-запрос к Voyage AI и возвращает embeddings.
-// Порядок результатов гарантирован через поле index из ответа.
-// Batching на 128 — Task 28.
+// Embed расщепляет texts на batch-и по voyageBatchSize, выполняет N HTTP-запросов
+// и склеивает результаты в порядке оригинального ввода.
 func (e *VoyageEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+
+	result := make([][]float32, 0, len(texts))
+	for i := 0; i < len(texts); i += voyageBatchSize {
+		end := i + voyageBatchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		chunk := texts[i:end]
+
+		embeddings, err := e.embedBatch(ctx, chunk)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, embeddings...)
+	}
+
+	return result, nil
+}
+
+// embedBatch выполняет один HTTP-запрос к Voyage AI для заданного chunk-а.
+// Порядок результатов гарантирован через поле index из ответа.
+func (e *VoyageEmbedder) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	payload := voyageRequest{
 		Input: texts,
 		Model: voyageModel,

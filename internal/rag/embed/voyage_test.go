@@ -2,6 +2,7 @@ package embed
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,4 +56,80 @@ func TestVoyageEmbedder_Name(t *testing.T) {
 func TestVoyageEmbedder_Dimension(t *testing.T) {
 	e := NewVoyageEmbedder("key", nil)
 	require.Equal(t, 1024, e.Dimension())
+}
+
+func TestVoyageEmbedder_EmptyInput(t *testing.T) {
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+	}))
+	defer ts.Close()
+
+	e := NewVoyageEmbedder("test-key", nil)
+	e.url = ts.URL + "/v1/embeddings"
+
+	result, err := e.Embed(t.Context(), nil)
+	require.NoError(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 0, requestCount)
+}
+
+func TestVoyageEmbedder_Batching(t *testing.T) {
+	var requestCount int
+	var requestSizes []int
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+			Model string   `json:"model"`
+		}
+		err := json.NewDecoder(r.Body).Decode(&body)
+		if err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		requestCount++
+		requestSizes = append(requestSizes, len(body.Input))
+
+		// Для каждого текста возвращаем embedding, где [0] == локальный индекс в batch.
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{
+				"index":     i,
+				"embedding": []float32{float32(i), 0, 0},
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer ts.Close()
+
+	// Формируем 200 текстов.
+	texts := make([]string, 200)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("text-%d", i)
+	}
+
+	e := NewVoyageEmbedder("test-key", nil)
+	e.url = ts.URL + "/v1/embeddings"
+
+	result, err := e.Embed(t.Context(), texts)
+	require.NoError(t, err)
+
+	// Должно быть ровно 2 запроса: 128 + 72.
+	require.Equal(t, 2, requestCount)
+	require.Equal(t, []int{128, 72}, requestSizes)
+
+	// Длина результата == 200.
+	require.Len(t, result, 200)
+
+	// Порядок: result[i][0] == локальный индекс внутри batch.
+	require.Equal(t, float32(0), result[0][0])
+	require.Equal(t, float32(127), result[127][0])
+	// Второй batch начинается заново с 0.
+	require.Equal(t, float32(0), result[128][0])
+	require.Equal(t, float32(71), result[199][0])
 }
