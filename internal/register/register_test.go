@@ -80,3 +80,16 @@ func TestRegister_GetSprintHealth(t *testing.T) {
 	require.False(t, result.IsError, "expected successful result")
 	require.NotEmpty(t, result.Content)
 }
+
+// TestRegister_SearchJiraKnowledge — smoke-тест: инструмент search_jira_knowledge
+// зарегистрирован и возвращает не-ошибочный результат.
+func TestRegister_SearchJiraKnowledge(t *testing.T) {
+	srv := newTestServer(t)
+	result := callTool(t, srv, "search_jira_knowledge", map[string]any{
+		"project_key": "TST",
+		"query":       "authentication bug",
+		"top_k":       3,
+	})
+	require.False(t, result.IsError, "expected successful result")
+	require.NotEmpty(t, result.Content)
+}
