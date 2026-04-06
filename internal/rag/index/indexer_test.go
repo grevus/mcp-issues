@@ -29,11 +29,14 @@ func (r *fakeReader) IterateIssueDocs(_ context.Context, _ string) (<-chan jira.
 
 // fakeEmbedder returns a synthetic embedding for each input text.
 // The embedding for index i is a single float32 slice where all elements equal float32(i+1).
+// It records the number of Embed calls made.
 type fakeEmbedder struct {
-	dim int
+	dim   int
+	calls int // number of times Embed was called
 }
 
 func (e *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	e.calls++
 	out := make([][]float32, len(texts))
 	for i := range texts {
 		vec := make([]float32, e.dim)
@@ -45,14 +48,49 @@ func (e *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 	return out, nil
 }
 
-// fakeStore records the documents passed to Upsert.
-type fakeStore struct {
-	upserted []store.Document
+// fakeTxStore records the projectKey and documents passed to ReplaceProject.
+type fakeTxStore struct {
+	replaceCalls int
+	lastProject  string
+	replaced     []store.Document
 }
 
-func (s *fakeStore) Upsert(_ context.Context, docs []store.Document) error {
-	s.upserted = append(s.upserted, docs...)
+func (s *fakeTxStore) ReplaceProject(_ context.Context, projectKey string, docs []store.Document) error {
+	s.replaceCalls++
+	s.lastProject = projectKey
+	s.replaced = append([]store.Document(nil), docs...) // snapshot
 	return nil
+}
+
+func makeIssueDocs(projectKey string, n int) []jira.IssueDoc {
+	now := time.Now().UTC().Truncate(time.Second)
+	docs := make([]jira.IssueDoc, n)
+	for i := range docs {
+		docs[i] = jira.IssueDoc{
+			ProjectKey:  projectKey,
+			Key:         projectKey + "-" + itoa(i+1),
+			Summary:     "Issue " + itoa(i+1),
+			Status:      "Open",
+			Description: "Description " + itoa(i+1),
+			UpdatedAt:   now,
+		}
+	}
+	return docs
+}
+
+// itoa is a minimal int-to-string helper to avoid importing strconv.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	buf := [20]byte{}
+	pos := len(buf)
+	for n > 0 {
+		pos--
+		buf[pos] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[pos:])
 }
 
 func TestReindex_HappyPath(t *testing.T) {
@@ -89,22 +127,26 @@ func TestReindex_HappyPath(t *testing.T) {
 
 	reader := &fakeReader{docs: issueDocs}
 	embedder := &fakeEmbedder{dim: 4}
-	st := &fakeStore{}
+	st := &fakeTxStore{}
 
 	idx := New(reader, embedder, st)
 	count, err := idx.Reindex(context.Background(), "ABC")
 
 	require.NoError(t, err)
 	require.Equal(t, 3, count, "должно быть проиндексировано 3 документа")
-	require.Len(t, st.upserted, 3, "Upsert должен получить 3 документа")
 
-	for i, doc := range st.upserted {
+	require.Equal(t, 1, st.replaceCalls, "ReplaceProject должен вызываться ровно один раз")
+	require.Equal(t, "ABC", st.lastProject)
+	require.Len(t, st.replaced, 3, "ReplaceProject должен получить 3 документа")
+
+	for i, doc := range st.replaced {
 		require.Equal(t, "ABC", doc.ProjectKey, "doc[%d]: project_key", i)
 		require.Equal(t, issueDocs[i].Key, doc.IssueKey, "doc[%d]: issue_key", i)
 		require.NotEmpty(t, doc.Content, "doc[%d]: content не должен быть пустым", i)
 		require.NotEmpty(t, doc.Embedding, "doc[%d]: embedding не должен быть пустым", i)
 
-		// Проверяем, что embedding соответствует индексу (fakeEmbedder: все элементы = float32(i+1))
+		// Проверяем, что embedding соответствует индексу внутри батча.
+		// При 3 документах (< embedBatchSize) — один батч, индексы 0..2.
 		expectedVal := float32(i + 1)
 		for j, v := range doc.Embedding {
 			require.Equal(t, expectedVal, v, "doc[%d] embedding[%d]", i, j)
@@ -115,12 +157,50 @@ func TestReindex_HappyPath(t *testing.T) {
 func TestReindex_EmptyProject(t *testing.T) {
 	reader := &fakeReader{docs: nil}
 	embedder := &fakeEmbedder{dim: 4}
-	st := &fakeStore{}
+	st := &fakeTxStore{}
 
 	idx := New(reader, embedder, st)
 	count, err := idx.Reindex(context.Background(), "EMPTY")
 
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
-	require.Empty(t, st.upserted, "Upsert не должен вызываться для пустого проекта")
+	require.Equal(t, 0, st.replaceCalls, "ReplaceProject не должен вызываться для пустого проекта")
+	require.Empty(t, st.replaced)
+}
+
+// TestReindex_ReplaceProject_CalledOnce verifies that ReplaceProject is called
+// exactly once regardless of the number of documents.
+func TestReindex_ReplaceProject_CalledOnce(t *testing.T) {
+	docs := makeIssueDocs("PROJ", 5)
+	reader := &fakeReader{docs: docs}
+	embedder := &fakeEmbedder{dim: 4}
+	st := &fakeTxStore{}
+
+	idx := New(reader, embedder, st)
+	count, err := idx.Reindex(context.Background(), "PROJ")
+
+	require.NoError(t, err)
+	require.Equal(t, 5, count)
+	require.Equal(t, 1, st.replaceCalls, "ReplaceProject должен вызываться ровно один раз")
+	require.Equal(t, "PROJ", st.lastProject)
+	require.Len(t, st.replaced, 5)
+}
+
+// TestReindex_EmbedBatching verifies that 250 documents produce exactly 3 Embed
+// calls (batches of 100 + 100 + 50).
+func TestReindex_EmbedBatching(t *testing.T) {
+	const total = 250
+	docs := makeIssueDocs("BAT", total)
+	reader := &fakeReader{docs: docs}
+	embedder := &fakeEmbedder{dim: 4}
+	st := &fakeTxStore{}
+
+	idx := New(reader, embedder, st)
+	count, err := idx.Reindex(context.Background(), "BAT")
+
+	require.NoError(t, err)
+	require.Equal(t, total, count)
+	require.Equal(t, 3, embedder.calls, "250 docs / batch 100 → 3 вызова Embed (100+100+50)")
+	require.Equal(t, 1, st.replaceCalls, "ReplaceProject вызывается один раз")
+	require.Len(t, st.replaced, total)
 }

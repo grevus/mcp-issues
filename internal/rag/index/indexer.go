@@ -8,6 +8,8 @@ import (
 	"github.com/grevus/mcp-jira/internal/rag/store"
 )
 
+const embedBatchSize = 100
+
 // IssueReader streams IssueDoc values for a given Jira project.
 type IssueReader interface {
 	IterateIssueDocs(ctx context.Context, projectKey string) (<-chan jira.IssueDoc, <-chan error)
@@ -18,13 +20,13 @@ type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// Store persists indexed documents.
+// Store persists indexed documents with transactional replace support.
 type Store interface {
-	Upsert(ctx context.Context, docs []store.Document) error
+	ReplaceProject(ctx context.Context, projectKey string, docs []store.Document) error
 }
 
 // Indexer orchestrates the full reindex pipeline for a Jira project:
-// read → render → embed → upsert.
+// read → render → embed (batched) → ReplaceProject.
 type Indexer struct {
 	Reader   IssueReader
 	Embedder Embedder
@@ -36,9 +38,11 @@ func New(r IssueReader, e Embedder, s Store) *Indexer {
 	return &Indexer{Reader: r, Embedder: e, Store: s}
 }
 
-// Reindex fetches all issue docs for projectKey, embeds them, and upserts into
-// the store. It returns the number of documents upserted.
-// If the project has no issues, it returns (0, nil) without calling Embed or Upsert.
+// Reindex fetches all issue docs for projectKey, embeds them in batches of
+// embedBatchSize, and atomically replaces the project's index via
+// Store.ReplaceProject. It returns the number of documents indexed.
+// If the project has no issues, it returns (0, nil) without calling Embed or
+// ReplaceProject.
 func (idx *Indexer) Reindex(ctx context.Context, projectKey string) (int, error) {
 	docsCh, errCh := idx.Reader.IterateIssueDocs(ctx, projectKey)
 
@@ -84,20 +88,29 @@ func (idx *Indexer) Reindex(ctx context.Context, projectKey string) (int, error)
 		}
 	}
 
-	embeddings, err := idx.Embedder.Embed(ctx, texts)
-	if err != nil {
-		return 0, fmt.Errorf("index: embedding docs: %w", err)
-	}
-	if len(embeddings) != len(documents) {
-		return 0, fmt.Errorf("index: embedder returned %d vectors for %d documents", len(embeddings), len(documents))
+	// Embed in batches of embedBatchSize and stitch results together.
+	allEmbeddings := make([][]float32, 0, len(texts))
+	for start := 0; start < len(texts); start += embedBatchSize {
+		end := start + embedBatchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		batch, err := idx.Embedder.Embed(ctx, texts[start:end])
+		if err != nil {
+			return 0, fmt.Errorf("index: embedding batch [%d:%d]: %w", start, end, err)
+		}
+		if len(batch) != end-start {
+			return 0, fmt.Errorf("index: embedder returned %d vectors for batch of %d", len(batch), end-start)
+		}
+		allEmbeddings = append(allEmbeddings, batch...)
 	}
 
 	for i := range documents {
-		documents[i].Embedding = embeddings[i]
+		documents[i].Embedding = allEmbeddings[i]
 	}
 
-	if err := idx.Store.Upsert(ctx, documents); err != nil {
-		return 0, fmt.Errorf("index: upserting docs: %w", err)
+	if err := idx.Store.ReplaceProject(ctx, projectKey, documents); err != nil {
+		return 0, fmt.Errorf("index: replacing project docs: %w", err)
 	}
 
 	return len(documents), nil

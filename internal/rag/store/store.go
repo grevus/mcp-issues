@@ -45,3 +45,13 @@ type Store interface {
 	// Close releases resources held by the store.
 	Close() error
 }
+
+// TxStore extends Store with a transactional bulk-replace operation.
+type TxStore interface {
+	Store
+
+	// ReplaceProject atomically removes all documents for projectKey and
+	// inserts docs in a single transaction. If docs is empty, only the
+	// DELETE is executed (effectively wiping the project index).
+	ReplaceProject(ctx context.Context, projectKey string, docs []Document) error
+}
