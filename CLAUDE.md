@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Кода ещё нет. Архитектура зафиксирована в `docs/superpowers/specs/2026-04-06-mcp-jira-design.md`, реализация будет описана в `docs/superpowers/plans/2026-04-06-core-mvp.md`. **Перед любыми изменениями читай spec — он source of truth.**
+MVP реализован по плану `docs/superpowers/plans/2026-04-07-core-mvp-small-tasks.md`, см. ветку `feat/core-mvp`. Архитектура зафиксирована в `docs/superpowers/specs/2026-04-06-mcp-jira-design.md`. **Перед любыми изменениями читай spec — он source of truth.**
 
 ## Goal
 
@@ -88,4 +88,5 @@ go test -tags=integration ./...               # + pgvector через testcontai
 ## Docs
 
 - **`docs/superpowers/specs/2026-04-06-mcp-jira-design.md`** — source of truth по архитектуре. Читай это перед любыми правками.
-- `docs/superpowers/plans/2026-04-06-core-mvp.md` — план реализации (TDD по таскам).
+- `docs/superpowers/plans/2026-04-06-core-mvp.md` — исходный план реализации (историческая версия).
+- `docs/superpowers/plans/2026-04-07-core-mvp-small-tasks.md` — актуальный план мелких таск (использовался при MVP-реализации).
