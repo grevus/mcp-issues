@@ -103,6 +103,11 @@ func TestIterateIssueDocs_SinglePage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		// Теперь сервер обслуживает и /comment endpoints
+		if strings.HasSuffix(r.URL.Path, "/comment") {
+			_, _ = w.Write([]byte(`{"comments": []}`))
+			return
+		}
 		_, _ = w.Write([]byte(fixtureDocsPage1))
 	}))
 	defer srv.Close()
@@ -131,11 +136,16 @@ func TestIterateIssueDocs_SinglePage(t *testing.T) {
 }
 
 func TestIterateIssueDocs_TwoPages(t *testing.T) {
-	requestCount := 0
+	searchCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		// Обслуживаем /comment endpoints
+		if strings.HasSuffix(r.URL.Path, "/comment") {
+			_, _ = w.Write([]byte(`{"comments": []}`))
+			return
+		}
+		searchCount++
 		if r.URL.Query().Get("nextPageToken") == "page2" {
 			_, _ = w.Write([]byte(fixtureDocsPage2))
 		} else {
@@ -150,7 +160,7 @@ func TestIterateIssueDocs_TwoPages(t *testing.T) {
 	docs, err := collectDocs(t, out, errCh)
 	require.NoError(t, err)
 	require.Len(t, docs, 4)
-	require.Equal(t, 2, requestCount, "должно быть ровно 2 HTTP-запроса")
+	require.Equal(t, 2, searchCount, "должно быть ровно 2 поисковых HTTP-запроса")
 
 	keys := make([]string, 0, len(docs))
 	for _, d := range docs {
@@ -174,6 +184,104 @@ func TestIterateIssueDocs_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"errorMessages":["Internal Server Error"]}`))
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "user@example.com", "token", nil)
+	out, errCh := client.IterateIssueDocs(context.Background(), "ABC")
+
+	docs, err := collectDocs(t, out, errCh)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "500")
+	require.Empty(t, docs)
+}
+
+func TestIterateIssueDocs_WithComments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/rest/api/3/search/jql":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"issues": [
+					{
+						"key": "ABC-1",
+						"fields": {
+							"summary": "First issue",
+							"status": {"name": "In Progress"},
+							"assignee": {"displayName": "Alice"},
+							"description": "lorem ipsum",
+							"updated": "2026-01-15T10:30:00.000+0000"
+						}
+					},
+					{
+						"key": "ABC-2",
+						"fields": {
+							"summary": "Second issue",
+							"status": {"name": "Done"},
+							"assignee": null,
+							"description": null,
+							"updated": "2026-01-16T08:00:00.000+0000"
+						}
+					}
+				]
+			}`))
+		case "/rest/api/3/issue/ABC-1/comment":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"comments": [
+					{"body": "First comment"},
+					{"body": "Second comment"}
+				]
+			}`))
+		case "/rest/api/3/issue/ABC-2/comment":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"comments": []}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "user@example.com", "token", nil)
+	out, errCh := client.IterateIssueDocs(context.Background(), "ABC")
+
+	docs, err := collectDocs(t, out, errCh)
+	require.NoError(t, err)
+	require.Len(t, docs, 2)
+
+	// ABC-1: два комментария в правильном порядке
+	require.Equal(t, "ABC-1", docs[0].Key)
+	require.Equal(t, []string{"First comment", "Second comment"}, docs[0].Comments)
+
+	// ABC-2: пустой массив комментариев
+	require.Equal(t, "ABC-2", docs[1].Key)
+	require.Empty(t, docs[1].Comments)
+}
+
+func TestIterateIssueDocs_CommentsHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/comment") {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"errorMessages":["comment fetch error"]}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"issues": [
+				{
+					"key": "ABC-1",
+					"fields": {
+						"summary": "First issue",
+						"status": {"name": "In Progress"},
+						"assignee": null,
+						"description": null,
+						"updated": "2026-01-15T10:30:00.000+0000"
+					}
+				}
+			]
+		}`))
 	}))
 	defer srv.Close()
 
