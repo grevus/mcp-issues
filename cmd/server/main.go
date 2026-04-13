@@ -90,7 +90,19 @@ func main() {
 
 	case config.ModeHTTP:
 		e := echo.New()
-		e.Use(echo.WrapMiddleware(auth.Middleware(cfg.MCPAPIKey)))
+
+		var authMiddleware func(http.Handler) http.Handler
+		if cfg.MCPKeysFile != "" {
+			keys, err := auth.LoadKeys(cfg.MCPKeysFile)
+			if err != nil {
+				log.Fatalf("auth keys: %v", err)
+			}
+			log.Printf("mcp-jira: loaded %d API key(s) from %s", len(keys), cfg.MCPKeysFile)
+			authMiddleware = auth.MultiKeyMiddleware(keys)
+		} else {
+			authMiddleware = auth.Middleware(cfg.MCPAPIKey)
+		}
+		e.Use(echo.WrapMiddleware(authMiddleware))
 
 		mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 		e.Any("/mcp", echo.WrapHandler(mcpHandler))
