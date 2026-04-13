@@ -4,61 +4,83 @@ import (
 	"context"
 	"testing"
 
-	"github.com/grevus/mcp-jira/internal/handlers"
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/knowledge"
+	"github.com/grevus/mcp-jira/internal/tenant"
+	"github.com/grevus/mcp-jira/internal/tracker"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeJira реализует JiraClient с помощью stub-ов.
-type fakeJira struct{}
+// fakeProvider реализует tracker.Provider с stub-ами.
+type fakeProvider struct{}
 
-func (f *fakeJira) ListIssues(_ context.Context, _ jira.ListIssuesParams) ([]jira.Issue, error) {
-	return []jira.Issue{{Key: "TST-1", Summary: "Stub issue"}}, nil
+func (f *fakeProvider) ListIssues(_ context.Context, _ tracker.ListParams) ([]tracker.Issue, error) {
+	return []tracker.Issue{{Key: "TST-1", Summary: "Stub issue"}}, nil
 }
 
-func (f *fakeJira) GetSprintHealth(_ context.Context, _ int) (jira.SprintHealth, error) {
-	return jira.SprintHealth{SprintName: "Sprint 1", Total: 5, Done: 2}, nil
+func (f *fakeProvider) GetIssue(_ context.Context, key string) (tracker.Issue, string, error) {
+	return tracker.Issue{Key: key, Summary: "Stub issue"}, "stub description", nil
 }
 
-func (f *fakeJira) GetIssue(_ context.Context, key string) (jira.Issue, string, error) {
-	return jira.Issue{Key: key, Summary: "Stub issue"}, "stub description", nil
+func (f *fakeProvider) GetSprintHealth(_ context.Context, _ int) (tracker.SprintHealth, error) {
+	return tracker.SprintHealth{SprintName: "Sprint 1", Total: 5, Done: 2}, nil
 }
 
-func (f *fakeJira) GetSprintScopeChanges(_ context.Context, _ int) ([]string, []string, error) {
-	return nil, nil, nil
-}
-
-func (f *fakeJira) GetIssueComments(_ context.Context, _ string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *fakeJira) GetSprintReport(_ context.Context, boardID, _ int) (jira.SprintReport, error) {
-	return jira.SprintReport{
-		Health:        jira.SprintHealth{BoardID: boardID, SprintName: "Sprint 1", Total: 5, Done: 2},
-		BlockedIssues: []jira.Issue{},
-		ScopeAdded:    []jira.Issue{},
-		ScopeRemoved:  []jira.Issue{},
+func (f *fakeProvider) GetSprintReport(_ context.Context, boardID, _ int) (tracker.SprintReport, error) {
+	return tracker.SprintReport{
+		Health:        tracker.SprintHealth{BoardID: boardID, SprintName: "Sprint 1", Total: 5, Done: 2},
+		BlockedIssues: []tracker.Issue{},
+		ScopeAdded:    []tracker.Issue{},
+		ScopeRemoved:  []tracker.Issue{},
 	}, nil
 }
 
-// fakeRetriever реализует handlers.KnowledgeRetriever.
-type fakeRetriever struct{}
-
-func (f *fakeRetriever) Search(_ context.Context, _, _ string, _ int) ([]handlers.Hit, error) {
-	return []handlers.Hit{{IssueKey: "TST-1", Summary: "Stub", Score: 0.9}}, nil
+func (f *fakeProvider) GetSprintScopeChanges(_ context.Context, _ int) ([]string, []string, error) {
+	return nil, nil, nil
 }
 
-// newTestServer создаёт mcp.Server и вызывает Register с fake-зависимостями.
+func (f *fakeProvider) GetIssueComments(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeProvider) IterateIssueDocs(_ context.Context, _ string) (<-chan tracker.IssueDoc, <-chan error) {
+	ch := make(chan tracker.IssueDoc)
+	errCh := make(chan error)
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+
+// fakeRetriever реализует tenant.KnowledgeRetriever.
+type fakeRetriever struct{}
+
+func (f *fakeRetriever) Search(_ context.Context, _, _ string, _ int) ([]knowledge.Hit, error) {
+	return []knowledge.Hit{{DocKey: "TST-1", Title: "Stub", Score: 0.9}}, nil
+}
+
+// newTestServer создаёт mcp.Server и вызывает Register с fake-тенантом.
+// Тенант регистрируется под ключом "" (пустая строка) — именно это значение
+// возвращает auth.KeyNameFromContext в контексте без аутентификации,
+// что позволяет smoke-тестам работать без HTTP middleware.
 func newTestServer(t *testing.T) *mcp.Server {
 	t.Helper()
+	reg := tenant.NewRegistry()
+	reg.Register("", &tenant.Tenant{
+		Config:    tenant.Config{Name: "default"},
+		Provider:  &fakeProvider{},
+		Retriever: &fakeRetriever{},
+	})
 	srv := mcp.NewServer(impl, nil)
-	Register(srv, &fakeJira{}, &fakeRetriever{})
+	Register(srv, reg)
 	return srv
 }
 
 // callTool вспомогательная функция: подключает клиент к серверу через in-memory
 // транспорт и вызывает инструмент по имени с переданными аргументами.
+// keyName передаётся в контекст через auth.ctxKey — для multi-tenant резолвинга
+// мы используем внутренний пакетный тип через adaptTenant. В тестах мы обходим
+// это, регистрируя тенанта под ключом "default" и оставляя keyName пустой строкой,
+// либо напрямую устанавливая имя в контексте.
 func callTool(t *testing.T, srv *mcp.Server, toolName string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
