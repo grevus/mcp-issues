@@ -56,8 +56,9 @@ type Config struct {
 	OpenAIAPIKey string
 	ONNXModelPath string // путь к директории с model.onnx (только для onnx)
 	ONNXLibDir    string // путь к директории с libonnxruntime (только для onnx, опционально)
-	MCPAPIKey    string // только для http
+	MCPAPIKey    string // только для http (single-key mode)
 	MCPAddr      string // только для http, default ":8080"
+	MCPKeysFile  string // путь к YAML-файлу с multi-tenant ключами (опционально)
 }
 
 // Load читает переменные окружения и возвращает Config для указанного mode.
@@ -122,11 +123,14 @@ func Load(mode Mode) (*Config, error) {
 		onnxLibDir = os.Getenv("ONNX_LIB_DIR") // опционально
 	}
 
-	var mcpAPIKey, mcpAddr string
+	var mcpAPIKey, mcpAddr, mcpKeysFile string
 	if mode == ModeHTTP {
-		mcpAPIKey = os.Getenv("MCP_API_KEY")
-		if mcpAPIKey == "" {
-			return nil, fmt.Errorf("config: MCP_API_KEY is required for http mode")
+		mcpKeysFile = os.Getenv("MCP_KEYS_FILE")
+		if mcpKeysFile == "" {
+			mcpAPIKey = os.Getenv("MCP_API_KEY")
+			if mcpAPIKey == "" {
+				return nil, fmt.Errorf("config: MCP_API_KEY or MCP_KEYS_FILE is required for http mode")
+			}
 		}
 		mcpAddr = os.Getenv("MCP_ADDR")
 		if mcpAddr == "" {
@@ -148,5 +152,6 @@ func Load(mode Mode) (*Config, error) {
 		ONNXLibDir:    onnxLibDir,
 		MCPAPIKey:     mcpAPIKey,
 		MCPAddr:       mcpAddr,
+		MCPKeysFile:   mcpKeysFile,
 	}, nil
 }
