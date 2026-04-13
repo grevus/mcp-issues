@@ -6,24 +6,24 @@ import (
 	"testing"
 
 	"github.com/grevus/mcp-jira/internal/handlers"
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeSprintReader struct {
 	gotBoardID int
-	health     jira.SprintHealth
+	health     tracker.SprintHealth
 	err        error
 }
 
-func (f *fakeSprintReader) GetSprintHealth(_ context.Context, boardID int) (jira.SprintHealth, error) {
+func (f *fakeSprintReader) GetSprintHealth(_ context.Context, boardID int) (tracker.SprintHealth, error) {
 	f.gotBoardID = boardID
 	return f.health, f.err
 }
 
 func TestSprintHealth_HappyPath(t *testing.T) {
 	fake := &fakeSprintReader{
-		health: jira.SprintHealth{
+		health: tracker.SprintHealth{
 			BoardID:    42,
 			SprintName: "Sprint 1",
 			Total:      10,

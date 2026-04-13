@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // SprintReporter — узкий интерфейс для sprint_health_report.
 type SprintReporter interface {
-	GetSprintReport(ctx context.Context, boardID, sprintID int) (jira.SprintReport, error)
+	GetSprintReport(ctx context.Context, boardID, sprintID int) (tracker.SprintReport, error)
 }
 
 // ScopeReader — узкий интерфейс для чтения scope changes спринта через changelog.
@@ -37,7 +37,7 @@ const (
 
 // SprintHealthReportOutput — детерминированный человекочитаемый отчёт.
 type SprintHealthReportOutput struct {
-	Report       jira.SprintReport `json:"report"`
+	Report       tracker.SprintReport `json:"report"`
 	Summary      string            `json:"summary"`
 	RiskLevel    RiskLevel         `json:"risk_level"`
 	ActionItems  []string          `json:"action_items"`
@@ -103,7 +103,7 @@ func SprintHealthReport(r SprintReporter, sr ScopeReader) Handler[SprintHealthRe
 // computeRisk — детерминированная оценка риска по health-агрегатам.
 // >20% blocked → high; >10% blocked → medium; иначе low.
 // При Velocity < 0.5 от Done понижаем уровень максимум до medium.
-func computeRisk(h jira.SprintHealth) RiskLevel {
+func computeRisk(h tracker.SprintHealth) RiskLevel {
 	if h.Total == 0 {
 		return RiskLow
 	}

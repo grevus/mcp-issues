@@ -3,21 +3,13 @@ package handlers
 import (
 	"context"
 	"fmt"
-)
 
-// Hit — один результат semantic-поиска. Дублирует форму store.Hit (Task 32),
-// чтобы handlers не зависел от RAG-пакетов на этапе Phase 5.
-type Hit struct {
-	IssueKey string  `json:"issue_key"`
-	Summary  string  `json:"summary"`
-	Status   string  `json:"status"`
-	Score    float32 `json:"score"`
-	Excerpt  string  `json:"excerpt"`
-}
+	"github.com/grevus/mcp-jira/internal/knowledge"
+)
 
 // KnowledgeRetriever — узкий интерфейс для handler SearchKnowledge.
 type KnowledgeRetriever interface {
-	Search(ctx context.Context, projectKey, query string, topK int) ([]Hit, error)
+	Search(ctx context.Context, projectKey, query string, topK int) ([]knowledge.Hit, error)
 }
 
 // SearchKnowledgeInput — параметры MCP tool search_jira_knowledge.
@@ -29,7 +21,7 @@ type SearchKnowledgeInput struct {
 
 // SearchKnowledgeOutput — результат MCP tool search_jira_knowledge.
 type SearchKnowledgeOutput struct {
-	Hits []Hit `json:"hits"`
+	Hits []knowledge.Hit `json:"hits"`
 }
 
 // SearchKnowledge возвращает Handler с валидацией поля TopK (Task 25).

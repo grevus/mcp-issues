@@ -13,12 +13,13 @@ import (
 
 	"github.com/grevus/mcp-jira/internal/auth"
 	"github.com/grevus/mcp-jira/internal/config"
-	"github.com/grevus/mcp-jira/internal/handlers"
-	"github.com/grevus/mcp-jira/internal/jira"
-	"github.com/grevus/mcp-jira/internal/rag/embed"
-	"github.com/grevus/mcp-jira/internal/rag/retriever"
-	"github.com/grevus/mcp-jira/internal/rag/store"
+	"github.com/grevus/mcp-jira/internal/knowledge/embed"
+	kpg "github.com/grevus/mcp-jira/internal/knowledge/pgvector"
+	"github.com/grevus/mcp-jira/internal/knowledge/retriever"
 	"github.com/grevus/mcp-jira/internal/register"
+	"github.com/grevus/mcp-jira/internal/tenant"
+	"github.com/grevus/mcp-jira/internal/tracker"
+	jiratracker "github.com/grevus/mcp-jira/internal/tracker/jira"
 )
 
 func main() {
@@ -43,9 +44,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	// Jira HTTP client.
-	jc := jira.NewHTTPClient(cfg.JiraBaseURL, cfg.JiraEmail, cfg.JiraAPIToken, cfg.JiraAuthType, nil)
-
 	// Embedder: switch by cfg.RAGEmbedder.
 	var emb embed.Embedder
 	switch cfg.RAGEmbedder {
@@ -62,22 +60,68 @@ func main() {
 	}
 
 	// PgvectorStore.
-	st, err := store.New(ctx, cfg.DatabaseURL)
+	st, err := kpg.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("store: %v", err)
 	}
 	defer st.Close()
 
-	// Retriever.
-	ret := retriever.New(emb, st)
+	// Build tenant Registry.
+	reg := tenant.NewRegistry()
 
-	// retrieverAdapter bridges retriever.Retriever (returns []store.Hit)
-	// to handlers.KnowledgeRetriever (expects []handlers.Hit).
-	retAdapter := &retrieverAdapter{r: ret}
+	if cfg.MCPKeysFile != "" {
+		// Multi-tenant mode: load tenant configs from keys file.
+		tenantConfigs, err := tenant.LoadTenantsFromFile(cfg.MCPKeysFile)
+		if err != nil {
+			log.Fatalf("tenant: load keys file: %v", err)
+		}
+		for _, tc := range tenantConfigs {
+			var prov tracker.Provider
+			switch tc.TrackerType {
+			case "jira", "":
+				baseURL := tc.TrackerConfig["base_url"]
+				if baseURL == "" {
+					baseURL = cfg.JiraBaseURL
+				}
+				email := tc.TrackerConfig["email"]
+				if email == "" {
+					email = cfg.JiraEmail
+				}
+				token := tc.TrackerConfig["api_token"]
+				if token == "" {
+					token = cfg.JiraAPIToken
+				}
+				authType := tc.TrackerConfig["auth_type"]
+				if authType == "" {
+					authType = cfg.JiraAuthType
+				}
+				prov = jiratracker.NewHTTPClient(baseURL, email, token, authType, nil)
+			default:
+				log.Fatalf("unknown tracker type %q for tenant %q", tc.TrackerType, tc.Name)
+			}
+			ret := retriever.New(emb, st, tc.Name)
+			reg.Register(tc.Name, &tenant.Tenant{
+				Config:    tc,
+				Provider:  prov,
+				Knowledge: st,
+				Retriever: ret,
+			})
+		}
+	} else {
+		// Single-tenant mode: use env vars, register under "default".
+		jc := jiratracker.NewHTTPClient(cfg.JiraBaseURL, cfg.JiraEmail, cfg.JiraAPIToken, cfg.JiraAuthType, nil)
+		ret := retriever.New(emb, st, "")
+		reg.Register("default", &tenant.Tenant{
+			Config:    tenant.Config{Name: "default"},
+			Provider:  jc,
+			Knowledge: st,
+			Retriever: ret,
+		})
+	}
 
 	// MCP server.
 	srv := mcp.NewServer(&mcp.Implementation{Name: "mcp-jira", Version: "0.1.0"}, nil)
-	register.Register(srv, jc, retAdapter)
+	register.Register(srv, reg)
 
 	switch mode {
 	case config.ModeStdio:
@@ -91,18 +135,16 @@ func main() {
 	case config.ModeHTTP:
 		e := echo.New()
 
-		var authMiddleware func(http.Handler) http.Handler
 		if cfg.MCPKeysFile != "" {
+			// Multi-tenant: load keys for auth middleware from the same file.
 			keys, err := auth.LoadKeys(cfg.MCPKeysFile)
 			if err != nil {
-				log.Fatalf("auth keys: %v", err)
+				log.Fatalf("auth: load keys: %v", err)
 			}
-			log.Printf("mcp-jira: loaded %d API key(s) from %s", len(keys), cfg.MCPKeysFile)
-			authMiddleware = auth.MultiKeyMiddleware(keys)
+			e.Use(echo.WrapMiddleware(auth.MultiKeyMiddleware(keys)))
 		} else {
-			authMiddleware = auth.Middleware(cfg.MCPAPIKey)
+			e.Use(echo.WrapMiddleware(auth.Middleware(cfg.MCPAPIKey)))
 		}
-		e.Use(echo.WrapMiddleware(authMiddleware))
 
 		mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 		e.Any("/mcp", echo.WrapHandler(mcpHandler))
@@ -112,28 +154,4 @@ func main() {
 			log.Fatalf("http transport: %v", err)
 		}
 	}
-}
-
-// retrieverAdapter converts retriever.Retriever output ([]store.Hit) to
-// the []handlers.Hit shape expected by handlers.KnowledgeRetriever.
-type retrieverAdapter struct {
-	r *retriever.Retriever
-}
-
-func (a *retrieverAdapter) Search(ctx context.Context, projectKey, query string, topK int) ([]handlers.Hit, error) {
-	hits, err := a.r.Search(ctx, projectKey, query, topK)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]handlers.Hit, len(hits))
-	for i, h := range hits {
-		out[i] = handlers.Hit{
-			IssueKey: h.IssueKey,
-			Summary:  h.Summary,
-			Status:   h.Status,
-			Score:    h.Score,
-			Excerpt:  h.Excerpt,
-		}
-	}
-	return out, nil
 }

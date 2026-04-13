@@ -56,15 +56,26 @@ type Config struct {
 	OpenAIAPIKey string
 	ONNXModelPath string // путь к директории с model.onnx (только для onnx)
 	ONNXLibDir    string // путь к директории с libonnxruntime (только для onnx, опционально)
-	MCPAPIKey    string // только для http; legacy single-key
-	MCPKeysFile  string // только для http; путь к YAML с ключами (приоритет над MCPAPIKey)
+	MCPAPIKey    string // только для http (single-key mode)
 	MCPAddr      string // только для http, default ":8080"
+	MCPKeysFile  string // путь к YAML-файлу с multi-tenant ключами (опционально)
 }
 
 // Load читает переменные окружения и возвращает Config для указанного mode.
-// Общие обязательные переменные: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, DATABASE_URL.
+// В multi-tenant режиме (MCP_KEYS_FILE задан) Jira env опциональны —
+// credentials берутся из YAML per-tenant. DATABASE_URL обязателен всегда.
 func Load(mode Mode) (*Config, error) {
 	LoadDotEnv(".env")
+
+	// DATABASE_URL обязателен всегда.
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return nil, fmt.Errorf("config: DATABASE_URL is required")
+	}
+
+	// Определяем, есть ли multi-tenant keys file (нужно раньше, чтобы
+	// понять, обязательны ли Jira env).
+	mcpKeysFile := os.Getenv("MCP_KEYS_FILE")
 
 	authType := os.Getenv("JIRA_AUTH_TYPE")
 	if authType == "" {
@@ -74,26 +85,26 @@ func Load(mode Mode) (*Config, error) {
 		return nil, fmt.Errorf("config: JIRA_AUTH_TYPE must be \"basic\" or \"bearer\", got %q", authType)
 	}
 
-	required := []struct {
-		env string
-	}{
-		{"JIRA_BASE_URL"},
-		{"JIRA_API_TOKEN"},
-		{"DATABASE_URL"},
-	}
-	if authType == "basic" {
-		required = append(required, struct{ env string }{"JIRA_EMAIL"})
-	}
-
-	values := make(map[string]string, len(required)+1)
-	for _, r := range required {
-		v := os.Getenv(r.env)
-		if v == "" {
-			return nil, fmt.Errorf("config: %s is required", r.env)
+	// Jira env обязательны только в single-tenant режиме (без MCP_KEYS_FILE).
+	values := make(map[string]string)
+	values["DATABASE_URL"] = dbURL
+	if mcpKeysFile == "" {
+		required := []string{"JIRA_BASE_URL", "JIRA_API_TOKEN"}
+		if authType == "basic" {
+			required = append(required, "JIRA_EMAIL")
 		}
-		values[r.env] = v
+		for _, env := range required {
+			v := os.Getenv(env)
+			if v == "" {
+				return nil, fmt.Errorf("config: %s is required", env)
+			}
+			values[env] = v
+		}
 	}
+	// Читаем Jira env как fallback (могут быть заданы даже в multi-tenant).
+	values["JIRA_BASE_URL"] = os.Getenv("JIRA_BASE_URL")
 	values["JIRA_EMAIL"] = os.Getenv("JIRA_EMAIL")
+	values["JIRA_API_TOKEN"] = os.Getenv("JIRA_API_TOKEN")
 
 	embedder := os.Getenv("RAG_EMBEDDER")
 	if embedder == "" {
@@ -123,12 +134,13 @@ func Load(mode Mode) (*Config, error) {
 		onnxLibDir = os.Getenv("ONNX_LIB_DIR") // опционально
 	}
 
-	var mcpAPIKey, mcpKeysFile, mcpAddr string
+	var mcpAPIKey, mcpAddr string
 	if mode == ModeHTTP {
-		mcpKeysFile = os.Getenv("MCP_KEYS_FILE")
-		mcpAPIKey = os.Getenv("MCP_API_KEY")
-		if mcpKeysFile == "" && mcpAPIKey == "" {
-			return nil, fmt.Errorf("config: MCP_KEYS_FILE or MCP_API_KEY is required for http mode")
+		if mcpKeysFile == "" {
+			mcpAPIKey = os.Getenv("MCP_API_KEY")
+			if mcpAPIKey == "" {
+				return nil, fmt.Errorf("config: MCP_API_KEY or MCP_KEYS_FILE is required for http mode")
+			}
 		}
 		mcpAddr = os.Getenv("MCP_ADDR")
 		if mcpAddr == "" {
@@ -149,7 +161,7 @@ func Load(mode Mode) (*Config, error) {
 		ONNXModelPath: onnxModelPath,
 		ONNXLibDir:    onnxLibDir,
 		MCPAPIKey:     mcpAPIKey,
-		MCPKeysFile:   mcpKeysFile,
 		MCPAddr:       mcpAddr,
+		MCPKeysFile:   mcpKeysFile,
 	}, nil
 }

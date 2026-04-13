@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/grevus/mcp-jira/internal/knowledge"
 )
 
 // EngineeringQAInput — параметры MCP tool engineering_qa.
@@ -16,7 +18,7 @@ type EngineeringQAInput struct {
 
 // EngineeringQAOutput — результат engineering_qa: список цитат из RAG-индекса.
 type EngineeringQAOutput struct {
-	Citations []Hit `json:"citations"`
+	Citations []knowledge.Hit `json:"citations"`
 }
 
 // EngineeringQA отвечает на инженерный вопрос, возвращая релевантные issue из

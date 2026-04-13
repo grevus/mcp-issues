@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/knowledge"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // IssueFetcher — узкий интерфейс: получить одну задачу по ключу вместе с её описанием.
 type IssueFetcher interface {
-	GetIssue(ctx context.Context, key string) (jira.Issue, string, error)
+	GetIssue(ctx context.Context, key string) (tracker.Issue, string, error)
 }
 
 // SimilarIssuesInput — параметры MCP tool similar_issues.
@@ -23,8 +24,8 @@ type SimilarIssuesInput struct {
 // SimilarIssuesOutput — результат similar_issues.
 // SimilarityScore агрегируется как score лучшего hit.
 type SimilarIssuesOutput struct {
-	Source        jira.Issue `json:"source"`
-	SimilarIssues []Hit      `json:"similar_issues"`
+	Source        tracker.Issue    `json:"source"`
+	SimilarIssues []knowledge.Hit  `json:"similar_issues"`
 }
 
 // SimilarIssues использует RAG retriever: берёт summary + description задачи
@@ -57,9 +58,9 @@ func SimilarIssues(f IssueFetcher, r KnowledgeRetriever) Handler[SimilarIssuesIn
 			return SimilarIssuesOutput{}, err
 		}
 
-		filtered := make([]Hit, 0, len(hits))
+		filtered := make([]knowledge.Hit, 0, len(hits))
 		for _, h := range hits {
-			if h.IssueKey == in.IssueKey {
+			if h.DocKey == in.IssueKey {
 				continue
 			}
 			filtered = append(filtered, h)

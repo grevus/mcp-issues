@@ -7,24 +7,24 @@ import (
 	"testing"
 
 	"github.com/grevus/mcp-jira/internal/handlers"
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeIssueLister struct {
-	gotParams jira.ListIssuesParams
-	issues    []jira.Issue
+	gotParams tracker.ListParams
+	issues    []tracker.Issue
 	err       error
 }
 
-func (f *fakeIssueLister) ListIssues(_ context.Context, p jira.ListIssuesParams) ([]jira.Issue, error) {
+func (f *fakeIssueLister) ListIssues(_ context.Context, p tracker.ListParams) ([]tracker.Issue, error) {
 	f.gotParams = p
 	return f.issues, f.err
 }
 
 func TestListIssues_HappyPath(t *testing.T) {
 	fake := &fakeIssueLister{
-		issues: []jira.Issue{
+		issues: []tracker.Issue{
 			{Key: "ABC-1", Summary: "First issue", Status: "Done"},
 			{Key: "ABC-2", Summary: "Second issue", Status: "Done", Assignee: "Alice"},
 		},

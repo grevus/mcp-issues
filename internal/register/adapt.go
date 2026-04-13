@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/grevus/mcp-jira/internal/auth"
 	"github.com/grevus/mcp-jira/internal/handlers"
+	"github.com/grevus/mcp-jira/internal/tenant"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -48,4 +50,23 @@ func jsonString(v any) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// adaptTenant wraps a per-tenant handler factory into an SDK-compatible handler.
+// It resolves the tenant from the Registry using the key name stored in context
+// by MultiKeyMiddleware, then delegates to adapt.
+func adaptTenant[In, Out any](
+	reg *tenant.Registry,
+	factory func(t *tenant.Tenant) handlers.Handler[In, Out],
+) func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		keyName := auth.KeyNameFromContext(ctx)
+		t, err := reg.Resolve(keyName)
+		if err != nil {
+			var zero Out
+			return nil, zero, err
+		}
+		h := factory(t)
+		return adapt(h)(ctx, req, in)
+	}
 }

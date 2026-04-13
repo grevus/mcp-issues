@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // StandupDigestInput — параметры MCP tool standup_digest.
@@ -19,14 +19,14 @@ type StandupDigestInput struct {
 
 // StandupDigestOutput — сгруппированный отчёт для async standup.
 type StandupDigestOutput struct {
-	YesterdaySummary string       `json:"yesterday_summary"`
-	TodayFocus       string       `json:"today_focus"`
-	Blockers         []jira.Issue `json:"blockers"`
-	NotableChanges   []string     `json:"notable_changes"`
+	YesterdaySummary string          `json:"yesterday_summary"`
+	TodayFocus       string          `json:"today_focus"`
+	Blockers         []tracker.Issue `json:"blockers"`
+	NotableChanges   []string        `json:"notable_changes"`
 }
 
 // StandupDigest — handler для standup_digest. Использует IssueLister (узкий),
-// переиспользуя фильтры UpdatedFrom/UpdatedTo в ListIssuesParams.
+// переиспользуя фильтры UpdatedFrom/UpdatedTo в ListParams.
 func StandupDigest(l IssueLister) Handler[StandupDigestInput, StandupDigestOutput] {
 	return func(ctx context.Context, in StandupDigestInput) (StandupDigestOutput, error) {
 		if in.TeamKey == "" {
@@ -36,7 +36,7 @@ func StandupDigest(l IssueLister) Handler[StandupDigestInput, StandupDigestOutpu
 			return StandupDigestOutput{}, fmt.Errorf("standup_digest: from and to are required")
 		}
 
-		issues, err := l.ListIssues(ctx, jira.ListIssuesParams{
+		issues, err := l.ListIssues(ctx, tracker.ListParams{
 			ProjectKey:  in.TeamKey,
 			UpdatedFrom: in.From,
 			UpdatedTo:   in.To,
@@ -49,7 +49,7 @@ func StandupDigest(l IssueLister) Handler[StandupDigestInput, StandupDigestOutpu
 		var (
 			done       []string
 			inProgress []string
-			blockers   []jira.Issue
+			blockers   []tracker.Issue
 			notable    []string
 		)
 		for _, is := range issues {

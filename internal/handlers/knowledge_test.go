@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/grevus/mcp-jira/internal/handlers"
+	"github.com/grevus/mcp-jira/internal/knowledge"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,11 +14,11 @@ type fakeKnowledgeRetriever struct {
 	gotProjectKey string
 	gotQuery      string
 	gotTopK       int
-	hits          []handlers.Hit
+	hits          []knowledge.Hit
 	err           error
 }
 
-func (f *fakeKnowledgeRetriever) Search(_ context.Context, projectKey, query string, topK int) ([]handlers.Hit, error) {
+func (f *fakeKnowledgeRetriever) Search(_ context.Context, projectKey, query string, topK int) ([]knowledge.Hit, error) {
 	f.gotProjectKey = projectKey
 	f.gotQuery = query
 	f.gotTopK = topK
@@ -26,9 +27,9 @@ func (f *fakeKnowledgeRetriever) Search(_ context.Context, projectKey, query str
 
 func TestSearchKnowledge_HappyPath(t *testing.T) {
 	fake := &fakeKnowledgeRetriever{
-		hits: []handlers.Hit{
-			{IssueKey: "ABC-10", Summary: "Auth refactor", Status: "Done", Score: 0.95, Excerpt: "Refactor auth module"},
-			{IssueKey: "ABC-11", Summary: "Auth middleware", Status: "In Progress", Score: 0.87, Excerpt: "Add middleware"},
+		hits: []knowledge.Hit{
+			{DocKey: "ABC-10", Title: "Auth refactor", Status: "Done", Score: 0.95, Excerpt: "Refactor auth module"},
+			{DocKey: "ABC-11", Title: "Auth middleware", Status: "In Progress", Score: 0.87, Excerpt: "Add middleware"},
 		},
 	}
 
@@ -44,8 +45,8 @@ func TestSearchKnowledge_HappyPath(t *testing.T) {
 	require.Equal(t, "auth refactor", fake.gotQuery)
 	require.Equal(t, 5, fake.gotTopK)
 	require.Len(t, out.Hits, 2)
-	require.Equal(t, "ABC-10", out.Hits[0].IssueKey)
-	require.Equal(t, "ABC-11", out.Hits[1].IssueKey)
+	require.Equal(t, "ABC-10", out.Hits[0].DocKey)
+	require.Equal(t, "ABC-11", out.Hits[1].DocKey)
 }
 
 func TestSearchKnowledge_PropagatesError(t *testing.T) {

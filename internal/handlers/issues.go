@@ -3,13 +3,13 @@ package handlers
 import (
 	"context"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // IssueLister — узкий интерфейс, который handler ListIssues получает на вход.
 // *jira.HTTPClient автоматически удовлетворяет его.
 type IssueLister interface {
-	ListIssues(ctx context.Context, p jira.ListIssuesParams) ([]jira.Issue, error)
+	ListIssues(ctx context.Context, p tracker.ListParams) ([]tracker.Issue, error)
 }
 
 // ListIssuesInput — параметры MCP tool list_issues.
@@ -22,13 +22,13 @@ type ListIssuesInput struct {
 
 // ListIssuesOutput — результат MCP tool list_issues.
 type ListIssuesOutput struct {
-	Issues []jira.Issue `json:"issues"`
+	Issues []tracker.Issue `json:"issues"`
 }
 
 // ListIssues возвращает Handler, оборачивающий IssueLister в типизированную функцию.
 func ListIssues(l IssueLister) Handler[ListIssuesInput, ListIssuesOutput] {
 	return func(ctx context.Context, in ListIssuesInput) (ListIssuesOutput, error) {
-		issues, err := l.ListIssues(ctx, jira.ListIssuesParams{
+		issues, err := l.ListIssues(ctx, tracker.ListParams{
 			ProjectKey: in.ProjectKey,
 			Status:     in.Status,
 			Assignee:   in.AssignedTo,

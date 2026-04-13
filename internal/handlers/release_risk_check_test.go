@@ -5,43 +5,44 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/knowledge"
+	"github.com/grevus/mcp-jira/internal/tracker"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeReleaseLister struct {
-	issues []jira.Issue
+	issues []tracker.Issue
 	err    error
-	gotP   jira.ListIssuesParams
+	gotP   tracker.ListParams
 }
 
-func (f *fakeReleaseLister) ListIssues(_ context.Context, p jira.ListIssuesParams) ([]jira.Issue, error) {
+func (f *fakeReleaseLister) ListIssues(_ context.Context, p tracker.ListParams) ([]tracker.Issue, error) {
 	f.gotP = p
 	return f.issues, f.err
 }
 
 type fakeReleaseRetriever struct {
-	hits    []Hit
+	hits    []knowledge.Hit
 	err     error
 	gotQ    string
 	gotTopK int
 }
 
-func (f *fakeReleaseRetriever) Search(_ context.Context, _, q string, topK int) ([]Hit, error) {
+func (f *fakeReleaseRetriever) Search(_ context.Context, _, q string, topK int) ([]knowledge.Hit, error) {
 	f.gotQ = q
 	f.gotTopK = topK
 	return f.hits, f.err
 }
 
 func TestReleaseRiskCheck_HappyPath(t *testing.T) {
-	l := &fakeReleaseLister{issues: []jira.Issue{
+	l := &fakeReleaseLister{issues: []tracker.Issue{
 		{Key: "A-1", Status: "In Progress"},
 		{Key: "A-2", Status: "To Do"},
 		{Key: "A-3", Status: "Blocked"},
 		{Key: "A-4", Status: "Done"},
 		{Key: "A-5", Status: "Closed"},
 	}}
-	r := &fakeReleaseRetriever{hits: []Hit{{IssueKey: "PM-1"}, {IssueKey: "PM-2"}}}
+	r := &fakeReleaseRetriever{hits: []knowledge.Hit{{DocKey: "PM-1"}, {DocKey: "PM-2"}}}
 
 	h := ReleaseRiskCheck(l, r)
 	out, err := h(context.Background(), ReleaseRiskCheckInput{

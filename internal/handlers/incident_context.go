@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/knowledge"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // CommentFetcher — узкий интерфейс: список комментариев задачи в виде plain text.
-// Матчится с публичным методом *jira.HTTPClient.GetIssueComments.
 type CommentFetcher interface {
 	GetIssueComments(ctx context.Context, issueKey string) ([]string, error)
 }
@@ -26,11 +26,11 @@ type IncidentContextInput struct {
 // и рекомендуемые проверки. DocsLinks зарезервирован под Phase 3 (Confluence)
 // и в Phase 2 всегда пустой slice.
 type IncidentContextOutput struct {
-	Source            jira.Issue `json:"source"`
-	RelatedIncidents  []Hit      `json:"related_incidents"`
-	SuspectedCauses   []string   `json:"suspected_causes"`
-	RecommendedChecks []string   `json:"recommended_checks"`
-	DocsLinks         []string   `json:"docs_links"`
+	Source            tracker.Issue    `json:"source"`
+	RelatedIncidents  []knowledge.Hit  `json:"related_incidents"`
+	SuspectedCauses   []string         `json:"suspected_causes"`
+	RecommendedChecks []string         `json:"recommended_checks"`
+	DocsLinks         []string         `json:"docs_links"`
 }
 
 // IncidentContext собирает контекст инцидента из Jira-only источников:
@@ -67,9 +67,9 @@ func IncidentContext(f IssueFetcher, cf CommentFetcher, r KnowledgeRetriever) Ha
 		if err != nil {
 			return IncidentContextOutput{}, err
 		}
-		related := make([]Hit, 0, len(hits))
+		related := make([]knowledge.Hit, 0, len(hits))
 		for _, h := range hits {
-			if h.IssueKey == in.IssueKey {
+			if h.DocKey == in.IssueKey {
 				continue
 			}
 			related = append(related, h)

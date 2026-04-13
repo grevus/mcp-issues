@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/knowledge"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // TicketTriageInput — параметры MCP tool ticket_triage (Phase 2).
@@ -17,11 +18,11 @@ type TicketTriageInput struct {
 
 // TicketTriageOutput — результат ticket_triage.
 type TicketTriageOutput struct {
-	Source         jira.Issue `json:"source"`
-	SuggestedTeam  string     `json:"suggested_team"`
-	Priority       string     `json:"priority"`
-	Rationale      string     `json:"rationale"`
-	SimilarIssues  []Hit      `json:"similar_issues"`
+	Source         tracker.Issue   `json:"source"`
+	SuggestedTeam  string          `json:"suggested_team"`
+	Priority       string          `json:"priority"`
+	Rationale      string          `json:"rationale"`
+	SimilarIssues  []knowledge.Hit `json:"similar_issues"`
 }
 
 // priorityRule — одна запись в детерминированной таблице эвристик.
@@ -93,9 +94,9 @@ func TicketTriage(f IssueFetcher, r KnowledgeRetriever) Handler[TicketTriageInpu
 			return TicketTriageOutput{}, err
 		}
 
-		similar := make([]Hit, 0, len(hits))
+		similar := make([]knowledge.Hit, 0, len(hits))
 		for _, h := range hits {
-			if h.IssueKey == in.IssueKey {
+			if h.DocKey == in.IssueKey {
 				continue
 			}
 			similar = append(similar, h)
@@ -126,7 +127,7 @@ func TicketTriage(f IssueFetcher, r KnowledgeRetriever) Handler[TicketTriageInpu
 
 // inferTeam возвращает самое частое непустое имя assignee из similar.
 // Ties разрешаются порядком первого появления.
-func inferTeam(similar []Hit) string {
+func inferTeam(similar []knowledge.Hit) string {
 	counts := make(map[string]int)
 	order := make([]string, 0)
 	for _, h := range similar {

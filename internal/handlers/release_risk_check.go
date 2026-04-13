@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/knowledge"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // ReleaseRiskCheckInput — параметры MCP tool release_risk_check.
@@ -18,13 +19,13 @@ type ReleaseRiskCheckInput struct {
 
 // ReleaseRiskCheckOutput — результат release_risk_check.
 type ReleaseRiskCheckOutput struct {
-	FixVersion         string       `json:"fix_version"`
-	OpenIssues         []jira.Issue `json:"open_issues"`
-	BlockedIssues      []jira.Issue `json:"blocked_issues"`
-	RelatedPostmortems []Hit        `json:"related_postmortems"`
-	RiskLevel          string       `json:"risk_level"`
-	MissingRunbooks    []string     `json:"missing_runbooks"`
-	Summary            string       `json:"summary"`
+	FixVersion         string          `json:"fix_version"`
+	OpenIssues         []tracker.Issue `json:"open_issues"`
+	BlockedIssues      []tracker.Issue `json:"blocked_issues"`
+	RelatedPostmortems []knowledge.Hit `json:"related_postmortems"`
+	RiskLevel          string          `json:"risk_level"`
+	MissingRunbooks    []string        `json:"missing_runbooks"`
+	Summary            string          `json:"summary"`
 }
 
 // ReleaseRiskCheck собирает риск-картину по fixVersion: открытые/заблокированные
@@ -45,7 +46,7 @@ func ReleaseRiskCheck(l IssueLister, r KnowledgeRetriever) Handler[ReleaseRiskCh
 			topK = 5
 		}
 
-		issues, err := l.ListIssues(ctx, jira.ListIssuesParams{
+		issues, err := l.ListIssues(ctx, tracker.ListParams{
 			ProjectKey: in.ProjectKey,
 			FixVersion: in.FixVersion,
 			Limit:      100,
@@ -54,8 +55,8 @@ func ReleaseRiskCheck(l IssueLister, r KnowledgeRetriever) Handler[ReleaseRiskCh
 			return ReleaseRiskCheckOutput{}, err
 		}
 
-		open := make([]jira.Issue, 0)
-		blocked := make([]jira.Issue, 0)
+		open := make([]tracker.Issue, 0)
+		blocked := make([]tracker.Issue, 0)
 		for _, is := range issues {
 			status := strings.ToLower(is.Status)
 			switch {

@@ -6,18 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/grevus/mcp-jira/internal/knowledge"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeQARetriever struct {
-	hits       []Hit
+	hits       []knowledge.Hit
 	err        error
 	gotProject string
 	gotQuery   string
 	gotTopK    int
 }
 
-func (f *fakeQARetriever) Search(_ context.Context, projectKey, query string, topK int) ([]Hit, error) {
+func (f *fakeQARetriever) Search(_ context.Context, projectKey, query string, topK int) ([]knowledge.Hit, error) {
 	f.gotProject = projectKey
 	f.gotQuery = query
 	f.gotTopK = topK
@@ -28,7 +29,7 @@ func (f *fakeQARetriever) Search(_ context.Context, projectKey, query string, to
 }
 
 func TestEngineeringQA_HappyPath(t *testing.T) {
-	f := &fakeQARetriever{hits: []Hit{{IssueKey: "ABC-1", Summary: "foo", Score: 0.9}}}
+	f := &fakeQARetriever{hits: []knowledge.Hit{{DocKey: "ABC-1", Title: "foo", Score: 0.9}}}
 	h := EngineeringQA(f)
 
 	out, err := h(context.Background(), EngineeringQAInput{
@@ -43,7 +44,7 @@ func TestEngineeringQA_HappyPath(t *testing.T) {
 	require.True(t, strings.Contains(f.gotQuery, "rotate DB creds"))
 	require.True(t, strings.Contains(f.gotQuery, "postgres vault"))
 	require.Len(t, out.Citations, 1)
-	require.Equal(t, "ABC-1", out.Citations[0].IssueKey)
+	require.Equal(t, "ABC-1", out.Citations[0].DocKey)
 }
 
 func TestEngineeringQA_Validation(t *testing.T) {
@@ -63,7 +64,7 @@ func TestEngineeringQA_Validation(t *testing.T) {
 }
 
 func TestEngineeringQA_DefaultTopK(t *testing.T) {
-	f := &fakeQARetriever{hits: []Hit{}}
+	f := &fakeQARetriever{hits: []knowledge.Hit{}}
 	h := EngineeringQA(f)
 
 	_, err := h(context.Background(), EngineeringQAInput{Question: "q", ProjectKey: "ABC"})

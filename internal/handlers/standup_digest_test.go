@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/grevus/mcp-jira/internal/handlers"
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStandupDigest_GroupsByStatus(t *testing.T) {
 	fake := &fakeIssueLister{
-		issues: []jira.Issue{
+		issues: []tracker.Issue{
 			{Key: "ABC-1", Summary: "Ship feature X", Status: "Done"},
 			{Key: "ABC-2", Summary: "Refactor Y", Status: "In Progress"},
 			{Key: "ABC-3", Summary: "CI flaky", Status: "Blocked"},

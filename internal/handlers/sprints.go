@@ -3,12 +3,12 @@ package handlers
 import (
 	"context"
 
-	"github.com/grevus/mcp-jira/internal/jira"
+	"github.com/grevus/mcp-jira/internal/tracker"
 )
 
 // SprintReader — узкий интерфейс для handler SprintHealth.
 type SprintReader interface {
-	GetSprintHealth(ctx context.Context, boardID int) (jira.SprintHealth, error)
+	GetSprintHealth(ctx context.Context, boardID int) (tracker.SprintHealth, error)
 }
 
 // SprintHealthInput — параметры MCP tool get_sprint_health.
@@ -18,7 +18,7 @@ type SprintHealthInput struct {
 
 // SprintHealthOutput — результат MCP tool get_sprint_health.
 type SprintHealthOutput struct {
-	Health jira.SprintHealth `json:"health"`
+	Health tracker.SprintHealth `json:"health"`
 }
 
 // SprintHealth возвращает Handler, оборачивающий SprintReader.
