@@ -1,70 +1,75 @@
 # mcp-jira
 
-> An MCP server written in Go that gives LLM clients (Claude Desktop, Cursor, Claude Web, etc.) a set of practical tools over your Jira instance — plus semantic search (RAG) over indexed issues.
+> Ask Claude *"what's blocked in this sprint?"* and get real Jira data back.
 
-[![Go Version](https://img.shields.io/badge/go-1.26%2B-00ADD8.svg)](https://golang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-compatible-blueviolet)](https://modelcontextprotocol.io)
+
+Works with **Claude Desktop · Cursor · Cline · Claude Code · VS Code Copilot** — anything that speaks MCP.
+
+A Go MCP server that exposes practical tools over your Jira instance plus semantic search (RAG) over an indexed corpus of issues.
 
 [Русский README →](README.ru.md)
 
 ---
 
-## Features
+## Demo
 
-Ten tools that combine live Jira calls with RAG over an indexed corpus of issues:
+![demo](assets/demo.gif)
 
-| Tool | Description |
-|---|---|
-| `list_issues` | JQL search via Jira REST API v3. |
-| `get_sprint_health` | Active sprint health metrics (Jira Software / Agile API). |
-| `search_jira_knowledge` | Semantic search over indexed issues. |
-| `similar_issues` | Find semantically similar issues — duplicate detection / incident correlation. |
-| `sprint_health_report` | Extended sprint report: risk level, blocked items, action items, scope changes. |
-| `standup_digest` | Async standup: done / in-progress / blocked grouped by time window. |
-| `engineering_qa` | Answer engineering questions with RAG citations. |
-| `incident_context` | Incident context: similar past incidents, suspected causes, recommended checks. |
-| `ticket_triage` | Suggest owning team and priority based on similar issues. |
-| `release_risk_check` | Release risk assessment by `fixVersion` + postmortem search. |
+<!-- TODO: record a 15–25s GIF:
+  1. User types "What's blocked in ABC sprint?" in Claude
+  2. Claude calls get_sprint_health
+  3. Response with real sprint data
+-->
+
+---
+
+## Tools
+
+| Tool | What it does | Example prompt |
+|---|---|---|
+| `list_issues` | Filter issues via JQL (project, status, assignee, labels) | *"Show me all open bugs assigned to Alice in ABC"* |
+| `get_sprint_health` | Active sprint stats: done / in-progress / blocked / velocity | *"How's the current sprint going for board 42?"* |
+| `search_jira_knowledge` | Semantic search over indexed issues (RAG) | *"Find issues similar to authentication timeout"* |
+| `similar_issues` | Duplicate detection and incident correlation | *"Anything that looks like ABC-1234?"* |
+| `sprint_health_report` | Extended report: risk level, blockers, action items, scope changes | *"Give me a full risk report for the current sprint"* |
+| `standup_digest` | Async standup grouped by time window | *"What did my team ship in the last 24h?"* |
+| `engineering_qa` | Engineering Q&A with RAG citations | *"How did we handle the rate-limit bug in payments?"* |
+| `incident_context` | Similar past incidents, suspected causes, checks | *"We have a DB timeout in prod — what should I check?"* |
+| `ticket_triage` | Suggest owning team and priority from similar issues | *"Which team should own this ticket and what priority?"* |
+| `release_risk_check` | Release risk by `fixVersion` + postmortem search | *"Any risks for release 2.4.0?"* |
 
 Per-tool contracts: [`docs/tools/`](docs/tools/).
 
 Transports:
 - **stdio** — for Claude Desktop, Cursor, Claude Code.
-- **Streamable HTTP** on `/mcp` with static API key — for Claude Web, remote clients, multi-tenant setups.
+- **Streamable HTTP** on `/mcp` with a static API key — for Claude Web, remote clients, multi-tenant setups.
 
 ---
 
-## Quick Start (local, no Docker)
+## Quickstart
 
-The default storage backend is **SQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec)** — no external database required. Requires a C toolchain (Xcode CLT on macOS, `build-essential` on Linux) because of CGO.
-
-### 1. Install
+**Prerequisites:** Go 1.26+, a Jira API token, a Voyage/OpenAI key (or a local ONNX model). A C toolchain (Xcode CLT on macOS, `build-essential` on Linux) is required for CGO (sqlite-vec).
 
 ```bash
+# 1. Install (or build from source)
 go install github.com/grevus/mcp-jira/cmd/server@latest
 go install github.com/grevus/mcp-jira/cmd/index@latest
-```
 
-This drops `server` and `index` binaries into `$(go env GOPATH)/bin`. Rename them if you prefer (e.g. `mcp-jira`, `mcp-jira-index`).
-
-Or build from source:
-
-```bash
-git clone https://github.com/grevus/mcp-jira.git
-cd mcp-jira
-go build -o bin/mcp-jira ./cmd/server
-go build -o bin/mcp-jira-index ./cmd/index
-```
-
-### 2. Configure
-
-Copy `.env.example` to `.env` and fill in Jira + embedder credentials:
-
-```bash
+# 2. Configure — copy and fill in Jira + embedder credentials
 cp .env.example .env
+
+# 3. Migrate + index a project
+mcp-jira-index migrate
+mcp-jira-index index --project=ABC
+
+# 4. Run (stdio for desktop clients)
+mcp-jira --transport=stdio
 ```
 
-Minimum required variables:
+Minimum `.env`:
 
 ```bash
 JIRA_BASE_URL=https://your-org.atlassian.net
@@ -75,29 +80,12 @@ RAG_EMBEDDER=voyage
 VOYAGE_API_KEY=your-voyage-api-key
 ```
 
-Get a Jira API token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
-Get a Voyage AI key at [dash.voyageai.com](https://dash.voyageai.com) (free tier: 200M tokens).
+Get a Jira token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+Voyage AI key at [dash.voyageai.com](https://dash.voyageai.com) (free tier: 200M tokens).
 
-### 3. Migrate + index
+SQLite is the default store — the DB lands at `~/.mcp-jira/knowledge.db` (override with `SQLITE_PATH`). No Docker needed.
 
-```bash
-bin/mcp-jira-index migrate
-bin/mcp-jira-index index --project=ABC
-```
-
-Database file will be created at `~/.mcp-jira/knowledge.db` (override with `SQLITE_PATH`).
-
-### 4. Run
-
-```bash
-# stdio (Claude Desktop / Cursor)
-bin/mcp-jira --transport=stdio
-
-# HTTP (Claude Web, remote clients) — requires MCP_API_KEY
-MCP_API_KEY=your-secret-key bin/mcp-jira --transport=http
-```
-
-### 5. Claude Desktop config
+### Connect to Claude Desktop
 
 Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -105,7 +93,7 @@ Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claud
 {
   "mcpServers": {
     "mcp-jira": {
-      "command": "/absolute/path/to/bin/mcp-jira",
+      "command": "/absolute/path/to/mcp-jira",
       "args": ["--transport=stdio"],
       "env": {
         "JIRA_BASE_URL": "https://your-org.atlassian.net",
@@ -119,7 +107,13 @@ Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claud
 }
 ```
 
-Restart Claude Desktop. You should see the 10 tools under the mcp-jira server.
+Restart Claude Desktop — the 10 tools appear under the `mcp-jira` server.
+
+For HTTP transport (Claude Web, remote clients):
+
+```bash
+MCP_API_KEY=your-secret-key mcp-jira --transport=http
+```
 
 ---
 
@@ -133,9 +127,9 @@ docker compose up -d
 export KNOWLEDGE_STORE=pgvector
 export DATABASE_URL=postgres://mcp:mcp@localhost:15432/mcp
 
-bin/mcp-jira-index migrate
-bin/mcp-jira-index index --project=ABC
-bin/mcp-jira --transport=stdio
+mcp-jira-index migrate
+mcp-jira-index index --project=ABC
+mcp-jira --transport=stdio
 ```
 
 ---
@@ -188,13 +182,13 @@ Embedding dimension is fixed at **1024**. Choose one provider:
 The indexer fetches all issues in a project via JQL pagination, embeds each one, and stores them in the knowledge store.
 
 ```bash
-bin/mcp-jira-index index --project=ABC
+mcp-jira-index index --project=ABC
 ```
 
 Multi-tenant mode (keys file):
 
 ```bash
-bin/mcp-jira-index index --project=ABC --tenant=acme --keys-file=./keys.yaml
+mcp-jira-index index --project=ABC --tenant=acme --keys-file=./keys.yaml
 ```
 
 Re-indexing is idempotent — `ReplaceProject` atomically deletes and re-inserts all documents for that project key.
@@ -202,7 +196,7 @@ Re-indexing is idempotent — `ReplaceProject` atomically deletes and re-inserts
 No built-in scheduler. Run via cron or CI, e.g.:
 
 ```cron
-0 */6 * * * /path/to/bin/mcp-jira-index index --project=ABC >> /var/log/mcp-jira-index.log 2>&1
+0 */6 * * * /path/to/mcp-jira-index index --project=ABC >> /var/log/mcp-jira-index.log 2>&1
 ```
 
 ---
@@ -231,9 +225,22 @@ More context in [CLAUDE.md](CLAUDE.md).
 
 ---
 
+## Adding a new tool
+
+The architecture is deliberately flat — no plugin registry, no DI container. Adding a tool is 4 files:
+
+1. Method + DTO in `internal/tracker/jira/`
+2. Handler in `internal/handlers/<thing>.go` (~30 lines, see `issues.go` as a reference)
+3. Register one line in `internal/register/register.go`
+4. Docs: copy `docs/tools/_template.md` → `docs/tools/<name>.md`
+
+Full details in [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues: look for the `good first issue` label on GitHub Issues.
+
+---
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a new tool, run tests, and submit PRs.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for tests, code style, and PR workflow.
 
 ```bash
 go test ./...                          # unit tests

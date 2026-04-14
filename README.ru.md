@@ -1,30 +1,45 @@
 # mcp-jira
 
-> MCP-сервер на Go, дающий LLM-клиентам (Claude Desktop, Cursor, Claude Web и т.п.) набор практических инструментов поверх Jira — плюс семантический поиск (RAG) по индексированным issue.
+> Спроси у Claude *«что заблокировано в спринте?»* — и получи реальные данные из Jira.
 
-[![Go Version](https://img.shields.io/badge/go-1.26%2B-00ADD8.svg)](https://golang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-compatible-blueviolet)](https://modelcontextprotocol.io)
+
+Работает с **Claude Desktop · Cursor · Cline · Claude Code · VS Code Copilot** — с любым клиентом, говорящим на MCP.
+
+MCP-сервер на Go: набор практичных инструментов поверх Jira плюс семантический поиск (RAG) по индексированному корпусу issue.
 
 [English README →](README.md)
 
 ---
 
-## Возможности
+## Demo
 
-Десять tools, комбинирующих live-вызовы Jira и RAG по индексированному корпусу issue:
+![demo](assets/demo.gif)
 
-| Tool | Описание |
-|---|---|
-| `list_issues` | JQL-поиск через Jira REST API v3. |
-| `get_sprint_health` | Метрики активного спринта (Jira Software / Agile API). |
-| `search_jira_knowledge` | Семантический поиск по индексированным issue. |
-| `similar_issues` | Поиск похожих issue — дубликаты / корреляция инцидентов. |
-| `sprint_health_report` | Расширенный отчёт по спринту: риск, блокеры, action items, scope changes. |
-| `standup_digest` | Асинхронный standup: done / in-progress / blocked за окно времени. |
-| `engineering_qa` | Ответы на технические вопросы с RAG-цитатами. |
-| `incident_context` | Контекст инцидента: похожие прошлые, вероятные причины, что проверить. |
-| `ticket_triage` | Предложение owning team и приоритета по похожим issue. |
-| `release_risk_check` | Оценка риска релиза по `fixVersion` + поиск постмортемов. |
+<!-- TODO: записать GIF на 15–25 секунд:
+  1. Пользователь пишет в Claude: "Что заблокировано в спринте ABC?"
+  2. Claude вызывает get_sprint_health
+  3. В ответ — реальные данные спринта
+-->
+
+---
+
+## Tools
+
+| Tool | Что делает | Пример промпта |
+|---|---|---|
+| `list_issues` | JQL-поиск по проекту / статусу / assignee / labels | *«Покажи все открытые баги на Alice в проекте ABC»* |
+| `get_sprint_health` | Метрики активного спринта: done / in-progress / blocked / velocity | *«Как идёт текущий спринт на доске 42?»* |
+| `search_jira_knowledge` | Семантический поиск по индексированным issue (RAG) | *«Найди issue, похожие на таймаут аутентификации»* |
+| `similar_issues` | Поиск дубликатов и корреляция инцидентов | *«Есть что-то похожее на ABC-1234?»* |
+| `sprint_health_report` | Расширенный отчёт: риск, блокеры, action items, scope changes | *«Дай полный отчёт по рискам текущего спринта»* |
+| `standup_digest` | Асинхронный standup по окну времени | *«Что команда сделала за последние 24 часа?»* |
+| `engineering_qa` | Ответы на технические вопросы с RAG-цитатами | *«Как мы чинили rate-limit баг в payments?»* |
+| `incident_context` | Похожие прошлые инциденты, вероятные причины, что проверить | *«В проде таймаут по БД — что проверить?»* |
+| `ticket_triage` | Предложение owning team и приоритета по похожим issue | *«Какая команда должна взять этот тикет и с каким приоритетом?»* |
+| `release_risk_check` | Оценка риска релиза по `fixVersion` + поиск постмортемов | *«Какие риски у релиза 2.4.0?»* |
 
 Контракты по каждому tool — [`docs/tools/`](docs/tools/).
 
@@ -34,37 +49,27 @@
 
 ---
 
-## Быстрый старт (локально, без Docker)
+## Быстрый старт
 
-Хранилище по умолчанию — **SQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec)**, внешняя БД не нужна. Требуется C-тулчейн (Xcode CLT на macOS, `build-essential` на Linux) из-за CGO.
-
-### 1. Установка
+**Prerequisites:** Go 1.26+, Jira API token, ключ Voyage/OpenAI (или локальная модель ONNX). Нужен C-тулчейн (Xcode CLT на macOS, `build-essential` на Linux) из-за CGO (sqlite-vec).
 
 ```bash
+# 1. Установка (или сборка из исходников)
 go install github.com/grevus/mcp-jira/cmd/server@latest
 go install github.com/grevus/mcp-jira/cmd/index@latest
-```
 
-Это положит бинари `server` и `index` в `$(go env GOPATH)/bin`. При желании переименуйте (например, в `mcp-jira`, `mcp-jira-index`).
-
-Или сборка из исходников:
-
-```bash
-git clone https://github.com/grevus/mcp-jira.git
-cd mcp-jira
-go build -o bin/mcp-jira ./cmd/server
-go build -o bin/mcp-jira-index ./cmd/index
-```
-
-### 2. Настройка
-
-Скопируйте `.env.example` в `.env` и заполните credentials для Jira и embedder:
-
-```bash
+# 2. Конфигурация — скопировать и заполнить credentials для Jira и embedder
 cp .env.example .env
+
+# 3. Миграции + индексация проекта
+mcp-jira-index migrate
+mcp-jira-index index --project=ABC
+
+# 4. Запуск (stdio для десктопных клиентов)
+mcp-jira --transport=stdio
 ```
 
-Минимально необходимые переменные:
+Минимальный `.env`:
 
 ```bash
 JIRA_BASE_URL=https://your-org.atlassian.net
@@ -76,28 +81,11 @@ VOYAGE_API_KEY=your-voyage-api-key
 ```
 
 Jira API token: [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
-Voyage AI API key: [dash.voyageai.com](https://dash.voyageai.com) (free tier — 200M токенов). **Примечание:** `api.voyageai.com` недоступен из России без VPN — используйте `openai` или `onnx` embedder.
+Voyage AI: [dash.voyageai.com](https://dash.voyageai.com) (free tier — 200M токенов). **Примечание:** `api.voyageai.com` недоступен из России без VPN — используйте `openai` или `onnx` embedder.
 
-### 3. Миграции + индексация
+По умолчанию хранилище — SQLite, файл БД создаётся в `~/.mcp-jira/knowledge.db` (переопределяется через `SQLITE_PATH`). Docker не нужен.
 
-```bash
-bin/mcp-jira-index migrate
-bin/mcp-jira-index index --project=ABC
-```
-
-Файл БД создастся в `~/.mcp-jira/knowledge.db` (переопределяется через `SQLITE_PATH`).
-
-### 4. Запуск
-
-```bash
-# stdio (Claude Desktop / Cursor)
-bin/mcp-jira --transport=stdio
-
-# HTTP (Claude Web, remote) — нужен MCP_API_KEY
-MCP_API_KEY=your-secret-key bin/mcp-jira --transport=http
-```
-
-### 5. Конфиг Claude Desktop
+### Подключение к Claude Desktop
 
 Добавьте в `claude_desktop_config.json` (на macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -105,7 +93,7 @@ MCP_API_KEY=your-secret-key bin/mcp-jira --transport=http
 {
   "mcpServers": {
     "mcp-jira": {
-      "command": "/absolute/path/to/bin/mcp-jira",
+      "command": "/absolute/path/to/mcp-jira",
       "args": ["--transport=stdio"],
       "env": {
         "JIRA_BASE_URL": "https://your-org.atlassian.net",
@@ -119,7 +107,13 @@ MCP_API_KEY=your-secret-key bin/mcp-jira --transport=http
 }
 ```
 
-Перезапустите Claude Desktop. Под сервером mcp-jira должны появиться 10 tools.
+Перезапустите Claude Desktop — под сервером `mcp-jira` появятся 10 tools.
+
+Для HTTP-транспорта (Claude Web, remote-клиенты):
+
+```bash
+MCP_API_KEY=your-secret-key mcp-jira --transport=http
+```
 
 ---
 
@@ -133,9 +127,9 @@ docker compose up -d
 export KNOWLEDGE_STORE=pgvector
 export DATABASE_URL=postgres://mcp:mcp@localhost:15432/mcp
 
-bin/mcp-jira-index migrate
-bin/mcp-jira-index index --project=ABC
-bin/mcp-jira --transport=stdio
+mcp-jira-index migrate
+mcp-jira-index index --project=ABC
+mcp-jira --transport=stdio
 ```
 
 ---
@@ -188,13 +182,13 @@ bin/mcp-jira --transport=stdio
 Индексатор забирает все issue проекта через JQL pagination, строит эмбеддинг для каждого и сохраняет в knowledge store.
 
 ```bash
-bin/mcp-jira-index index --project=ABC
+mcp-jira-index index --project=ABC
 ```
 
 Multi-tenant режим (keys file):
 
 ```bash
-bin/mcp-jira-index index --project=ABC --tenant=acme --keys-file=./keys.yaml
+mcp-jira-index index --project=ABC --tenant=acme --keys-file=./keys.yaml
 ```
 
 Переиндексация идемпотентна — `ReplaceProject` атомарно удаляет и вставляет все документы проекта в одной транзакции.
@@ -202,7 +196,7 @@ bin/mcp-jira-index index --project=ABC --tenant=acme --keys-file=./keys.yaml
 Встроенного планировщика нет. Запускайте через cron или CI:
 
 ```cron
-0 */6 * * * /path/to/bin/mcp-jira-index index --project=ABC >> /var/log/mcp-jira-index.log 2>&1
+0 */6 * * * /path/to/mcp-jira-index index --project=ABC >> /var/log/mcp-jira-index.log 2>&1
 ```
 
 ---
@@ -231,9 +225,22 @@ cmd/index           migrate | index --project=ABC
 
 ---
 
+## Как добавить новый tool
+
+Архитектура намеренно плоская — нет plugin registry и DI-контейнера. Новый tool — это 4 файла:
+
+1. Метод + DTO в `internal/tracker/jira/`
+2. Хендлер в `internal/handlers/<thing>.go` (~30 строк, пример — `issues.go`)
+3. Одна строка регистрации в `internal/register/register.go`
+4. Документация: скопировать `docs/tools/_template.md` → `docs/tools/<name>.md`
+
+Полная инструкция — в [CONTRIBUTING.md](CONTRIBUTING.md). Для старта ищите лейбл `good first issue` в GitHub Issues.
+
+---
+
 ## Вклад
 
-Инструкции по добавлению tool, запуску тестов и PR — в [CONTRIBUTING.md](CONTRIBUTING.md).
+Тесты, стиль кода и PR workflow — в [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 go test ./...                          # unit tests
