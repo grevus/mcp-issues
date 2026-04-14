@@ -12,9 +12,11 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/grevus/mcp-jira/internal/config"
+	"github.com/grevus/mcp-jira/internal/knowledge"
 	"github.com/grevus/mcp-jira/internal/knowledge/embed"
 	kindex "github.com/grevus/mcp-jira/internal/knowledge/index"
 	kpg "github.com/grevus/mcp-jira/internal/knowledge/pgvector"
+	ksqlite "github.com/grevus/mcp-jira/internal/knowledge/sqlite"
 	"github.com/grevus/mcp-jira/internal/tenant"
 	jiratracker "github.com/grevus/mcp-jira/internal/tracker/jira"
 )
@@ -82,9 +84,20 @@ func runIndex(ctx context.Context, args []string) {
 		emb = embed.NewVoyageEmbedder(cfg.VoyageAPIKey, nil)
 	}
 
-	st, err := kpg.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("store: %v", err)
+	var st knowledge.Store
+	switch cfg.KnowledgeStore {
+	case "pgvector":
+		pgst, err := kpg.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("pgvector store: %v", err)
+		}
+		st = pgst
+	default: // "sqlite"
+		sqst, err := ksqlite.New(ctx, cfg.SQLitePath)
+		if err != nil {
+			log.Fatalf("sqlite store: %v", err)
+		}
+		st = sqst
 	}
 	defer st.Close()
 
@@ -161,15 +174,27 @@ func runMigrate(ctx context.Context) {
 		log.Fatalf("config: %v", err)
 	}
 
-	db, err := sql.Open("pgx", cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("open db: %v", err)
-	}
-	defer db.Close()
+	switch cfg.KnowledgeStore {
+	case "pgvector":
+		db, err := sql.Open("pgx", cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("open db: %v", err)
+		}
+		defer db.Close()
 
-	if err := kpg.Migrate(ctx, db); err != nil {
-		log.Fatalf("migrate: %v", err)
-	}
+		if err := kpg.Migrate(ctx, db); err != nil {
+			log.Fatalf("migrate: %v", err)
+		}
+		log.Printf("pgvector migrations applied")
 
-	log.Printf("migrations applied")
+	default: // "sqlite"
+		// SQLite migrations run automatically in sqlite.New().
+		// Calling New here ensures the DB file and tables are created.
+		st, err := ksqlite.New(ctx, cfg.SQLitePath)
+		if err != nil {
+			log.Fatalf("sqlite migrate: %v", err)
+		}
+		st.Close()
+		log.Printf("sqlite database initialized at %s", cfg.SQLitePath)
+	}
 }

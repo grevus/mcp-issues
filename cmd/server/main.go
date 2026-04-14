@@ -13,8 +13,10 @@ import (
 
 	"github.com/grevus/mcp-jira/internal/auth"
 	"github.com/grevus/mcp-jira/internal/config"
+	"github.com/grevus/mcp-jira/internal/knowledge"
 	"github.com/grevus/mcp-jira/internal/knowledge/embed"
 	kpg "github.com/grevus/mcp-jira/internal/knowledge/pgvector"
+	ksqlite "github.com/grevus/mcp-jira/internal/knowledge/sqlite"
 	"github.com/grevus/mcp-jira/internal/knowledge/retriever"
 	"github.com/grevus/mcp-jira/internal/register"
 	"github.com/grevus/mcp-jira/internal/tenant"
@@ -59,10 +61,21 @@ func main() {
 		emb = embed.NewVoyageEmbedder(cfg.VoyageAPIKey, nil)
 	}
 
-	// PgvectorStore.
-	st, err := kpg.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("store: %v", err)
+	// Knowledge store.
+	var st knowledge.Store
+	switch cfg.KnowledgeStore {
+	case "pgvector":
+		pgst, err := kpg.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("pgvector store: %v", err)
+		}
+		st = pgst
+	default: // "sqlite"
+		sqst, err := ksqlite.New(ctx, cfg.SQLitePath)
+		if err != nil {
+			log.Fatalf("sqlite store: %v", err)
+		}
+		st = sqst
 	}
 	defer st.Close()
 

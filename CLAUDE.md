@@ -2,110 +2,103 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status
-
-MVP реализован по плану `docs/superpowers/plans/2026-04-07-core-mvp-small-tasks.md`. Phase 1 (3 tool: `similar_issues`, `sprint_health_report`, `standup_digest`) и Phase 2 (4 tool: `engineering_qa`, `incident_context`, `ticket_triage`, `release_risk_check` + закрытие долга по `scope_added/scope_removed` в `sprint_health_report` через `expand=changelog`) реализованы поверх Jira-only RAG без новых источников данных. Phase 3 (Confluence-коннектор) — запланирована (см. spec §2). Архитектура зафиксирована в `docs/superpowers/specs/2026-04-06-mcp-jira-design.md`. **Перед любыми изменениями читай spec — он source of truth.**
-
 ## Goal
 
-Нишевый MCP-сервер на Go, дающий LLM-клиентам набор tools поверх Jira. MVP покрывает 3 tool, Phase 1 расширяет до 6, Phase 2 — до 10 (реализовано). Phase 3 (+3 tool поверх Confluence) — запланирован (см. spec §2).
+MCP server (Go) giving LLM clients a set of tools over Jira + RAG (semantic search over indexed issues).
 
-**MVP (stable):**
-- `list_issues` — JQL-поиск через `/rest/api/3/search/jql`.
-- `get_sprint_health` — агрегат активного спринта (Jira Software / Agile API).
-- `search_jira_knowledge` — семантический поиск по индексированным issue (RAG).
+**10 tools implemented:**
+- `list_issues` — JQL search via Jira REST API v3.
+- `get_sprint_health` — active sprint health metrics (Jira Software / Agile API).
+- `search_jira_knowledge` — semantic search over indexed issues (RAG).
+- `similar_issues` — find semantically similar issues for duplicate detection / incident correlation.
+- `sprint_health_report` — extended sprint report: risk level, blocked, action items, scope changes.
+- `standup_digest` — async standup: done / in-progress / blocked grouped by time window.
+- `engineering_qa` — answer engineering questions with RAG citations.
+- `incident_context` — incident context: similar past incidents, suspected causes, recommended checks.
+- `ticket_triage` — suggest owning team and priority based on similar issues.
+- `release_risk_check` — release risk assessment by fixVersion + postmortem search.
 
-**Phase 1 (beta, реализовано):**
-- `similar_issues` — RAG-поиск похожих задач от заданной issue.
-- `sprint_health_report` — расширенный sprint-отчёт: risk level, blocked, action items.
-- `standup_digest` — группировка движений по статусам за временной диапазон.
+Tool contracts: `docs/tools/` (per-tool md + index). Description in `internal/register/register.go` must match the md file.
 
-**Phase 2 (beta, реализовано):**
-- `engineering_qa` — QA поверх RAG-индекса; цитаты = hits.
-- `incident_context` — контекст инцидента: похожие, suspected_causes, recommended_checks из комментариев.
-- `ticket_triage` — suggested_team по assignee-частоте в похожих, priority по keyword-эвристике.
-- `release_risk_check` — риск релиза по `fixVersion` + семантический поиск постмортемов.
-
-**Phase 3 (запланировано):** `runbook_for_signal`, `onboarding_path`, `policy_guardrail_check` — после Confluence-коннектора.
-
-Канонические контракты tools — `docs/tools/` (per-tool md + индекс). Description в `internal/register/register.go` и в md-файле должны совпадать.
-
-Транспорты: stdio (Claude Desktop/Cursor) и Streamable HTTP `/mcp` под API-ключом (Claude Web и т.п.).
+Transports: stdio (Claude Desktop/Cursor) and Streamable HTTP `/mcp` with API key (Claude Web etc.).
 
 ## Tech stack
 
-- **Go 1.26+**, два single-binary: `mcp-jira` (сервер) и `mcp-jira-index` (CLI индексатор).
-- `github.com/modelcontextprotocol/go-sdk` — MCP server. Реальный API: `mcp.NewServer(&Implementation{}, opts)`, `mcp.AddTool[In,Out](srv, &Tool{}, h)`, `srv.Run(ctx, &StdioTransport{})`, `mcp.NewStreamableHTTPHandler(...)`. **SSE и `srv.AddTool(name,desc,fn)` — выдуманный API, не использовать.**
-- `github.com/labstack/echo/v4` — HTTP только в `cmd/server`. `mcp.NewStreamableHTTPHandler` монтируется через `echo.WrapHandler`, `auth.Middleware` — через `echo.WrapMiddleware`.
-- `github.com/jackc/pgx/v5` + **Postgres + pgvector** — RAG storage (pure Go, без CGO).
-- `github.com/pressly/goose/v3` — миграции через `embed.FS`.
-- **Voyage AI** (default) и **OpenAI** — embedders. Выбор через `RAG_EMBEDDER=voyage|openai`. Размерность фиксирована `vector(1024)`.
-- `testcontainers-go` для интеграционных тестов pgvector (build tag `+integration`).
-- `stretchr/testify/require` для ассертов.
-- Jira REST API v3 / Agile API v1.0 поверх `net/http` (basic auth).
+- **Go 1.26+**, two binaries: `mcp-jira` (server) and `mcp-jira-index` (CLI indexer).
+- `github.com/modelcontextprotocol/go-sdk` — MCP server. Real API: `mcp.NewServer(&Implementation{}, opts)`, `mcp.AddTool[In,Out](srv, &Tool{}, h)`, `srv.Run(ctx, &StdioTransport{})`, `mcp.NewStreamableHTTPHandler(...)`. **SSE and `srv.AddTool(name,desc,fn)` are hallucinated API — do not use.**
+- `github.com/labstack/echo/v4` — HTTP only in `cmd/server`.
+- **Knowledge store**: `KNOWLEDGE_STORE=sqlite` (default, local file via sqlite-vec) or `pgvector` (Postgres + pgvector).
+- **Embedders**: Voyage AI (default), OpenAI, ONNX (local). Choice via `RAG_EMBEDDER=voyage|openai|onnx`. Dimension fixed at 1024.
+- `github.com/pressly/goose/v3` — migrations (pgvector mode).
+- `testcontainers-go` for pgvector integration tests (build tag `+integration`).
+- `stretchr/testify/require` for assertions.
+- Jira REST API v3 / Agile API v1.0 over `net/http`.
 
 ## Architecture
 
-Зависимости только сверху вниз. MCP SDK и Echo не протекают в бизнес-логику.
+Dependencies flow top-down only. MCP SDK and Echo do not leak into business logic.
 
 ```
 cmd/server/main.go            stdio | streamable-http (Echo)
 cmd/index/main.go             migrate | index --project=ABC
-  └─ internal/register        ЕДИНСТВЕННЫЙ импортёр go-sdk/mcp; adapt[In,Out] + Register
-       └─ internal/handlers   Handler[In,Out] func(ctx, In) (Out, error); НЕ знает про mcp/echo
-            └─ узкие интерфейсы (IssueLister, IssueFetcher, SprintReader, SprintReporter, KnowledgeRetriever)
-                 ├─ internal/jira (HTTPClient: ListIssues, GetIssue, GetSprintHealth, GetSprintReport, IterateIssueDocs)
-                 └─ internal/rag/retriever (Embedder + Store)
-                      ├─ internal/rag/embed (Voyage, OpenAI)
-                      ├─ internal/rag/store (PgvectorStore + миграции)
-                      └─ internal/rag/index (Indexer для CLI)
+  └─ internal/register        ONLY importer of go-sdk/mcp; adapt[In,Out] + Register
+       └─ internal/handlers   Handler[In,Out] func(ctx, In) (Out, error); knows nothing about mcp/echo
+            └─ narrow interfaces (IssueLister, IssueFetcher, SprintReader, SprintReporter, ...)
+                 ├─ internal/tracker/jira     (HTTPClient: Jira REST/Agile)
+                 └─ internal/knowledge        (Store interface + Retriever)
+                      ├─ internal/knowledge/embed     (Voyage, OpenAI, ONNX)
+                      ├─ internal/knowledge/pgvector  (PgvectorStore)
+                      ├─ internal/knowledge/sqlite    (SqliteStore)
+                      └─ internal/knowledge/index     (Indexer for CLI)
   └─ internal/auth            stdlib func(http.Handler) http.Handler, constant-time
-  └─ internal/config          Load(mode) — mode-зависимая валидация (stdio|http|index)
+  └─ internal/config          Load(mode) — mode-aware validation (stdio|http|index)
 ```
 
-**Незыблемые правила:**
-- `internal/handlers` импортирует только `context`/`json`/`fmt` + domain types. **Никогда** `mcp` или `echo`.
-- `internal/register` — единственный мост к `go-sdk/mcp`. При апдейте SDK правки только здесь.
-- Echo — только в `cmd/server`. `auth.Middleware` остаётся stdlib-совместимым.
-- `internal/rag/*` ничего не знает про MCP — переиспользуемая подсистема.
-- Каждый handler принимает **узкий** интерфейс, не толстый `jira.Client`.
-- **Stdio-режим: НИКОГДА не писать в stdout** (он занят JSON-RPC). Только `log.*` (stderr). Echo не создаётся в stdio-режиме.
-- `MCP_API_KEY` обязателен **только** для `--transport=http`.
+**Invariants:**
+- `internal/handlers` imports only `context`/`json`/`fmt` + domain types. **Never** `mcp` or `echo`.
+- `internal/register` is the only bridge to `go-sdk/mcp`. SDK updates — changes only here.
+- Echo only in `cmd/server`. `auth.Middleware` stays stdlib-compatible.
+- `internal/knowledge/*` knows nothing about MCP — reusable subsystem.
+- Each handler takes a **narrow** interface, not a fat `jira.Client`.
+- **Stdio mode: NEVER write to stdout** (reserved for JSON-RPC). Use `log.*` (stderr) only.
+- `MCP_API_KEY` required **only** for `--transport=http`.
 
 ## Common commands
 
 ```bash
-docker compose up -d                          # pgvector локально
+# Build
 go build -o bin/mcp-jira ./cmd/server
 go build -o bin/mcp-jira-index ./cmd/index
-bin/mcp-jira-index migrate                    # goose Up
-bin/mcp-jira-index index --project=ABC        # полная переиндексация (TRUNCATE+INSERT в одной транзакции)
-bin/mcp-jira --transport=stdio                # для Claude Desktop / Cursor
-bin/mcp-jira --transport=http                 # для Claude Web; требует MCP_API_KEY
 
-go test ./...                                 # юниты
-go test -tags=integration ./...               # + pgvector через testcontainers (нужен Docker)
+# SQLite mode (default, no Docker needed)
+bin/mcp-jira-index migrate
+bin/mcp-jira-index index --project=ABC
+bin/mcp-jira --transport=stdio
+
+# pgvector mode (requires Docker)
+docker compose up -d
+KNOWLEDGE_STORE=pgvector DATABASE_URL=postgres://mcp:mcp@localhost:15432/mcp bin/mcp-jira-index migrate
+KNOWLEDGE_STORE=pgvector DATABASE_URL=postgres://mcp:mcp@localhost:15432/mcp bin/mcp-jira --transport=stdio
+
+# Tests
+go test ./...                                 # unit tests
+go test -tags=integration ./...               # + pgvector via testcontainers (needs Docker)
 ```
 
-**Env (по mode):** `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `DATABASE_URL`, `VOYAGE_API_KEY` или `OPENAI_API_KEY`, `RAG_EMBEDDER` (default `voyage`), `MCP_API_KEY` (только http), `MCP_ADDR` (default `:8080`). Точная матрица — в spec §3.7.
+## Adding a new tool
 
-## Adding a new Jira tool
+1. Method on tracker provider + DTO in `internal/tracker/jira/`.
+2. File `internal/handlers/<thing>.go`: `Input`, `Output`, narrow interface, constructor.
+3. Test with fake implementation of the narrow interface.
+4. One line in `internal/register/register.go`: `mcp.AddTool(srv, &mcp.Tool{Name: "..."}, adapt(...))`.
+5. `docs/tools/<name>.md` from template `docs/tools/_template.md` + line in `docs/tools/README.md`.
 
-1. Метод на `*jira.HTTPClient` + DTO в `internal/jira/`.
-2. Файл `internal/handlers/<thing>.go`: `Input`, `Output`, узкий интерфейс, функция-конструктор `Handler[In,Out]`.
-3. Тест с fake-реализацией узкого интерфейса.
-4. Одна строка в `internal/register/register.go`: `mcp.AddTool(srv, &mcp.Tool{Name: "..."}, adapt(handlers.Foo(jc)))`.
-5. `docs/tools/<name>.md` по шаблону `docs/tools/_template.md` + строка в `docs/tools/README.md`. Description в `register.go` и в md должны совпадать.
-
-Никакого plugin/registry/DI container — намеренный отказ.
+No plugin/registry/DI container — intentional.
 
 ## Out of scope
 
-Не добавляй без отдельного плана: Postgres-хранилище API-ключей (multi-tenant), Stripe billing, продакшн Docker/деплой, Prometheus, инкрементальная индексация, фоновый scheduler в сервере, Jira webhooks, retry на 429, hybrid search, чанкинг, live reload индекса, third embedder. Отдельно: **Confluence-коннектор** (Phase 3 в spec §2), **scope changes в `sprint_health_report`** (анализ changelog — Phase 2), **LLM-генерация внутри handlers** (все тексты детерминированные).
+Do not add without a separate plan: Postgres API key storage (multi-tenant), Stripe billing, production Docker/deploy, Prometheus, incremental indexing, background scheduler, Jira webhooks, retry on 429, hybrid search, chunking, live index reload. Separately: **Confluence connector** (Phase 3), **LLM generation inside handlers** (all texts are deterministic).
 
 ## Docs
 
-- **`docs/superpowers/specs/2026-04-06-mcp-jira-design.md`** — source of truth по архитектуре. Читай это перед любыми правками.
-- **`docs/tools/`** — канонические контракты MCP tools (per-tool md + индекс). Правь вместе с `internal/register/register.go`.
-- `docs/superpowers/plans/2026-04-06-core-mvp.md` — исходный план реализации (историческая версия).
-- `docs/superpowers/plans/2026-04-07-core-mvp-small-tasks.md` — актуальный план мелких таск (использовался при MVP-реализации).
+- **`docs/tools/`** — canonical MCP tool contracts (per-tool md + index). Edit together with `internal/register/register.go`.

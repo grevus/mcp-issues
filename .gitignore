@@ -34,5 +34,17 @@ go.work.sum
 
 # Build artifacts
 dist/
-server
-index
+/server
+/index
+
+# Internal / IDE / agent configs
+.claude/
+.agent/
+.agents/
+.claire/
+
+# Internal docs (plans, specs — not for public)
+docs/superpowers/
+
+# Vendor (go modules fetch on build)
+vendor/

@@ -14,6 +14,9 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("JIRA_BASE_URL", "https://example.atlassian.net")
 	t.Setenv("JIRA_EMAIL", "user@example.com")
 	t.Setenv("JIRA_API_TOKEN", "secret-token")
+	// Most tests exercise pgvector mode historically; keep that by default.
+	// Tests that care about the default sqlite path set KNOWLEDGE_STORE explicitly.
+	t.Setenv("KNOWLEDGE_STORE", "pgvector")
 	t.Setenv("DATABASE_URL", "postgres://localhost/testdb")
 	t.Setenv("VOYAGE_API_KEY", "voyage-test-key")
 }
@@ -192,6 +195,7 @@ func TestLoad_DotEnvFile(t *testing.T) {
 		"JIRA_BASE_URL=https://dot.atlassian.net",
 		"JIRA_EMAIL=dot@example.com",
 		"JIRA_API_TOKEN=dot-token",
+		"KNOWLEDGE_STORE=pgvector",
 		"DATABASE_URL=postgres://localhost/dotenv",
 		"VOYAGE_API_KEY=dot-voyage-key",
 	}, "\n")
@@ -258,4 +262,49 @@ func TestLoad_Index_IgnoresMCPAPIKey(t *testing.T) {
 	require.NotNil(t, cfg)
 	require.Equal(t, "", cfg.MCPAPIKey)
 	require.Equal(t, "", cfg.MCPAddr)
+}
+
+func TestLoad_KnowledgeStore_DefaultsToSqlite(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_STORE", "")
+	t.Setenv("DATABASE_URL", "")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.NoError(t, err)
+	require.Equal(t, "sqlite", cfg.KnowledgeStore)
+	require.NotEmpty(t, cfg.SQLitePath)
+	require.Empty(t, cfg.DatabaseURL)
+}
+
+func TestLoad_KnowledgeStore_SqliteCustomPath(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_STORE", "sqlite")
+	t.Setenv("SQLITE_PATH", "/custom/path/knowledge.db")
+	t.Setenv("DATABASE_URL", "")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.NoError(t, err)
+	require.Equal(t, "sqlite", cfg.KnowledgeStore)
+	require.Equal(t, "/custom/path/knowledge.db", cfg.SQLitePath)
+}
+
+func TestLoad_KnowledgeStore_PgvectorRequiresDatabaseURL(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_STORE", "pgvector")
+	t.Setenv("DATABASE_URL", "")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.Contains(t, err.Error(), "DATABASE_URL")
+}
+
+func TestLoad_KnowledgeStore_Invalid(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_STORE", "redis")
+
+	cfg, err := config.Load(config.ModeStdio)
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.Contains(t, err.Error(), "KNOWLEDGE_STORE")
 }

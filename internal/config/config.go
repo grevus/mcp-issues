@@ -45,32 +45,52 @@ const (
 
 // Config содержит всю конфигурацию приложения.
 type Config struct {
-	Mode         Mode
-	JiraBaseURL  string
-	JiraEmail    string
-	JiraAPIToken string
-	JiraAuthType string // "basic" (default) | "bearer" (Jira DC PAT)
-	DatabaseURL  string
-	RAGEmbedder  string // "voyage" | "openai" | "onnx"
-	VoyageAPIKey string
-	OpenAIAPIKey string
-	ONNXModelPath string // путь к директории с model.onnx (только для onnx)
-	ONNXLibDir    string // путь к директории с libonnxruntime (только для onnx, опционально)
-	MCPAPIKey    string // только для http (single-key mode)
-	MCPAddr      string // только для http, default ":8080"
-	MCPKeysFile  string // путь к YAML-файлу с multi-tenant ключами (опционально)
+	Mode           Mode
+	JiraBaseURL    string
+	JiraEmail      string
+	JiraAPIToken   string
+	JiraAuthType   string // "basic" (default) | "bearer" (Jira DC PAT)
+	KnowledgeStore string // "sqlite" (default) | "pgvector"
+	DatabaseURL    string // only for pgvector
+	SQLitePath     string // only for sqlite, default "~/.mcp-jira/knowledge.db"
+	RAGEmbedder    string // "voyage" | "openai" | "onnx"
+	VoyageAPIKey   string
+	OpenAIAPIKey   string
+	ONNXModelPath  string // path to directory with model.onnx (onnx only)
+	ONNXLibDir     string // path to onnxruntime lib directory (onnx, optional)
+	MCPAPIKey      string // http mode only (single-key)
+	MCPAddr        string // http mode only, default ":8080"
+	MCPKeysFile    string // path to YAML multi-tenant keys file (optional)
 }
 
 // Load читает переменные окружения и возвращает Config для указанного mode.
 // В multi-tenant режиме (MCP_KEYS_FILE задан) Jira env опциональны —
-// credentials берутся из YAML per-tenant. DATABASE_URL обязателен всегда.
+// credentials берутся из YAML per-tenant.
+// KNOWLEDGE_STORE=sqlite (default) не требует DATABASE_URL; pgvector требует.
 func Load(mode Mode) (*Config, error) {
 	LoadDotEnv(".env")
 
-	// DATABASE_URL обязателен всегда.
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		return nil, fmt.Errorf("config: DATABASE_URL is required")
+	// Knowledge store selection.
+	knowledgeStore := os.Getenv("KNOWLEDGE_STORE")
+	if knowledgeStore == "" {
+		knowledgeStore = "sqlite"
+	}
+	if knowledgeStore != "sqlite" && knowledgeStore != "pgvector" {
+		return nil, fmt.Errorf("config: KNOWLEDGE_STORE must be \"sqlite\" or \"pgvector\", got %q", knowledgeStore)
+	}
+
+	var dbURL, sqlitePath string
+	if knowledgeStore == "pgvector" {
+		dbURL = os.Getenv("DATABASE_URL")
+		if dbURL == "" {
+			return nil, fmt.Errorf("config: DATABASE_URL is required when KNOWLEDGE_STORE=pgvector")
+		}
+	} else {
+		sqlitePath = os.Getenv("SQLITE_PATH")
+		if sqlitePath == "" {
+			home, _ := os.UserHomeDir()
+			sqlitePath = home + "/.mcp-jira/knowledge.db"
+		}
 	}
 
 	// Определяем, есть ли multi-tenant keys file (нужно раньше, чтобы
@@ -87,7 +107,6 @@ func Load(mode Mode) (*Config, error) {
 
 	// Jira env обязательны только в single-tenant режиме (без MCP_KEYS_FILE).
 	values := make(map[string]string)
-	values["DATABASE_URL"] = dbURL
 	if mcpKeysFile == "" {
 		required := []string{"JIRA_BASE_URL", "JIRA_API_TOKEN"}
 		if authType == "basic" {
@@ -149,19 +168,21 @@ func Load(mode Mode) (*Config, error) {
 	}
 
 	return &Config{
-		Mode:          mode,
-		JiraBaseURL:   values["JIRA_BASE_URL"],
-		JiraEmail:     values["JIRA_EMAIL"],
-		JiraAPIToken:  values["JIRA_API_TOKEN"],
-		JiraAuthType:  authType,
-		DatabaseURL:   values["DATABASE_URL"],
-		RAGEmbedder:   embedder,
-		VoyageAPIKey:  voyageKey,
-		OpenAIAPIKey:  openaiKey,
-		ONNXModelPath: onnxModelPath,
-		ONNXLibDir:    onnxLibDir,
-		MCPAPIKey:     mcpAPIKey,
-		MCPAddr:       mcpAddr,
-		MCPKeysFile:   mcpKeysFile,
+		Mode:           mode,
+		JiraBaseURL:    values["JIRA_BASE_URL"],
+		JiraEmail:      values["JIRA_EMAIL"],
+		JiraAPIToken:   values["JIRA_API_TOKEN"],
+		JiraAuthType:   authType,
+		KnowledgeStore: knowledgeStore,
+		DatabaseURL:    dbURL,
+		SQLitePath:     sqlitePath,
+		RAGEmbedder:    embedder,
+		VoyageAPIKey:   voyageKey,
+		OpenAIAPIKey:   openaiKey,
+		ONNXModelPath:  onnxModelPath,
+		ONNXLibDir:     onnxLibDir,
+		MCPAPIKey:      mcpAPIKey,
+		MCPAddr:        mcpAddr,
+		MCPKeysFile:    mcpKeysFile,
 	}, nil
 }

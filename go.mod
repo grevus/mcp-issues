@@ -3,9 +3,11 @@ module github.com/grevus/mcp-jira
 go 1.26.1
 
 require (
+	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/knights-analytics/hugot v0.6.4
 	github.com/labstack/echo/v4 v4.15.1
+	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/pressly/goose/v3 v3.27.0
