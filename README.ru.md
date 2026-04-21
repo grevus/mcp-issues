@@ -2,7 +2,7 @@
 
 > Спроси у Claude *«что заблокировано в спринте?»* — и получи реальные данные из Jira.
 
-[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blueviolet)](https://modelcontextprotocol.io)
 
@@ -30,15 +30,15 @@ MCP-сервер на Go: набор практичных инструменто
 
 | Tool | Что делает | Пример промпта |
 |---|---|---|
+| `list_issues` | JQL-поиск по проекту / статусу / assignee / labels | *«Покажи все открытые баги на Alice в проекте ABC»* |
+| `sprint_health_report` | Расширенный отчёт: риск, блокеры, action items, scope changes | *«Дай полный отчёт по рискам текущего спринта»* |
+| `standup_digest` | Асинхронный standup по окну времени | *«Что команда сделала за последние 24 часа?»* |
 | `engineering_qa` | Ответы на технические вопросы с RAG-цитатами | *«Как мы чинили rate-limit баг в payments?»* |
 | `get_sprint_health` | Метрики активного спринта: done / in-progress / blocked / velocity | *«Как идёт текущий спринт на доске 42?»* |
 | `incident_context` | Похожие прошлые инциденты, вероятные причины, что проверить | *«В проде таймаут по БД — что проверить?»* |
-| `list_issues` | JQL-поиск по проекту / статусу / assignee / labels | *«Покажи все открытые баги на Alice в проекте ABC»* |
 | `release_risk_check` | Оценка риска релиза по `fixVersion` + поиск постмортемов | *«Какие риски у релиза 2.4.0?»* |
 | `search_jira_knowledge` | Семантический поиск по индексированным issue (RAG) | *«Найди issue, похожие на таймаут аутентификации»* |
 | `similar_issues` | Поиск дубликатов и корреляция инцидентов | *«Есть что-то похожее на ABC-1234?»* |
-| `sprint_health_report` | Расширенный отчёт: риск, блокеры, action items, scope changes | *«Дай полный отчёт по рискам текущего спринта»* |
-| `standup_digest` | Асинхронный standup по окну времени | *«Что команда сделала за последние 24 часа?»* |
 | `ticket_triage` | Предложение owning team и приоритета по похожим issue | *«Какая команда должна взять этот тикет и с каким приоритетом?»* |
 
 Контракты по каждому tool — [`docs/tools/`](docs/tools/).

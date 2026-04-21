@@ -2,7 +2,7 @@
 
 > Ask Claude *"what's blocked in this sprint?"* and get real Jira data back.
 
-[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blueviolet)](https://modelcontextprotocol.io)
 
@@ -30,15 +30,15 @@ A Go MCP server that exposes practical tools over your Jira instance plus semant
 
 | Tool | What it does | Example prompt |
 |---|---|---|
+| `list_issues` | Filter issues via JQL (project, status, assignee, labels) | *"Show me all open bugs assigned to Alice in ABC"* |
+| `sprint_health_report` | Extended report: risk level, blockers, action items, scope changes | *"Give me a full risk report for the current sprint"* |
+| `standup_digest` | Async standup grouped by time window | *"What did my team ship in the last 24h?"* |
 | `engineering_qa` | Engineering Q&A with RAG citations | *"How did we handle the rate-limit bug in payments?"* |
 | `get_sprint_health` | Active sprint stats: done / in-progress / blocked / velocity | *"How's the current sprint going for board 42?"* |
 | `incident_context` | Similar past incidents, suspected causes, checks | *"We have a DB timeout in prod — what should I check?"* |
-| `list_issues` | Filter issues via JQL (project, status, assignee, labels) | *"Show me all open bugs assigned to Alice in ABC"* |
 | `release_risk_check` | Release risk by `fixVersion` + postmortem search | *"Any risks for release 2.4.0?"* |
 | `search_jira_knowledge` | Semantic search over indexed issues (RAG) | *"Find issues similar to authentication timeout"* |
 | `similar_issues` | Duplicate detection and incident correlation | *"Anything that looks like ABC-1234?"* |
-| `sprint_health_report` | Extended report: risk level, blockers, action items, scope changes | *"Give me a full risk report for the current sprint"* |
-| `standup_digest` | Async standup grouped by time window | *"What did my team ship in the last 24h?"* |
 | `ticket_triage` | Suggest owning team and priority from similar issues | *"Which team should own this ticket and what priority?"* |
 
 Per-tool contracts: [`docs/tools/`](docs/tools/).
